@@ -406,20 +406,68 @@ def lk_get_payments(lk_session, login):
                         sep = '&' if '?' in url else '?'
                         full_url = url + sep + '&'.join(f'{k}={requests.utils.quote(v)}' for k, v in params.items())
                     r = lk_session.get(full_url, headers=headers_req, timeout=15)
-                r.encoding = 'utf-8'
+                # Пробуем сначала apparent_encoding (cp1251), потом utf-8
+                if r.apparent_encoding:
+                    r.encoding = r.apparent_encoding
                 html = r.text or ''
+                if len(html) < 5000:
+                    # вдруг не угадал — пробуем cp1251
+                    try:
+                        html = r.content.decode('cp1251', errors='ignore')
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[LK] payments {method} {url} error: {e}")
                 continue
 
-            print(f"[LK] payments {method} {url} status={r.status_code} len={len(html)}")
+            print(f"[LK] payments {method} {url} status={r.status_code} len={len(html)} enc={r.encoding}")
             if len(html) < 500:
                 continue
             if 'name="pass"' in html or 'name="login"' in html:
                 continue
 
-            soup = BeautifulSoup(html, 'html.parser')
-            tables = soup.find_all('table')
+            # Проверяем наличие iframe/ссылок на «настоящую» страницу с историей
+            iframe_match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
+            link_targets = re.findall(r'(?:href|src|action)=["\']([^"\']*(?:money|payment|finance|stat|report)[^"\']*)["\']', html, re.IGNORECASE)
+            print(f"[LK] iframe={iframe_match.group(1) if iframe_match else None} links={link_targets[:8]}")
+
+            # Если есть iframe — грузим его
+            target_urls = []
+            if iframe_match:
+                iframe_src = iframe_match.group(1)
+                if iframe_src.startswith('http'):
+                    target_urls.append(iframe_src)
+                else:
+                    target_urls.append('http://lk.arttele.ru/' + iframe_src.lstrip('/'))
+            for lt in link_targets[:10]:
+                if lt.startswith('http'):
+                    target_urls.append(lt)
+                elif lt.startswith('/'):
+                    target_urls.append('http://lk.arttele.ru' + lt)
+                else:
+                    target_urls.append('http://lk.arttele.ru/' + lt)
+
+            # Если нашли потенциальные внутренние ссылки — загружаем их и парсим
+            extra_html_blobs = [html]
+            for tu in target_urls[:5]:
+                try:
+                    rr = lk_session.get(tu, headers=headers_req, timeout=10)
+                    if rr.apparent_encoding:
+                        rr.encoding = rr.apparent_encoding
+                    extra_html = rr.text or ''
+                    if len(extra_html) < 5000:
+                        extra_html = rr.content.decode('cp1251', errors='ignore')
+                    print(f"[LK] sub GET {tu} status={rr.status_code} len={len(extra_html)}")
+                    if len(extra_html) > 500:
+                        extra_html_blobs.append(extra_html)
+                except Exception as e:
+                    print(f"[LK] sub error {tu}: {e}")
+
+            tables = []
+            for blob in extra_html_blobs:
+                soup_b = BeautifulSoup(blob, 'html.parser')
+                tables.extend(soup_b.find_all('table'))
+            soup = BeautifulSoup(extra_html_blobs[0], 'html.parser')
             print(f"[LK] tables_total={len(tables)}")
             for ti, table in enumerate(tables):
                 rows = table.find_all('tr')
@@ -629,10 +677,7 @@ def kassa_get_payments(session, login, uid=''):
                 urls = []
                 for c in candidates:
                     q_client = requests.utils.quote(c)
-                    for path in ajax_paths:
-                        urls.append(KASSA_URL + path + '?client=' + q_client + base_params)
-                        urls.append(KASSA_URL + path + '?client=' + q_client + '&date1=' + requests.utils.quote(date1) + '&date2=' + requests.utils.quote(date2) + '&records=99999')
-                    urls.append(KASSA_URL + '/usrstat.php?client=' + q_client + '&option2=2')
+                    urls.append(KASSA_URL + '/usrstat.php?client=' + q_client + base_params)
     except Exception as e:
         print(f"[MIKROBILL] short uid extract error: {e}")
 
