@@ -509,51 +509,85 @@ def lk_get_payments(lk_session, login):
                 except Exception as e:
                     print(f"[LK] sub error {tu}: {e}")
 
-            tables = []
+            # Парсим сырой HTML через regex — надёжнее BeautifulSoup на кривом markup
             for blob in extra_html_blobs:
-                soup_b = BeautifulSoup(blob, 'html.parser')
-                tables.extend(soup_b.find_all('table'))
-            soup = BeautifulSoup(extra_html_blobs[0], 'html.parser')
-            print(f"[LK] tables_total={len(tables)}")
-            for ti, table in enumerate(tables):
-                rows = table.find_all('tr')
-                if rows:
-                    headers = [c.get_text(' ', strip=True).lower() for c in rows[0].find_all(['th', 'td'])]
-                    print(f"[LK] table#{ti} rows={len(rows)} headers={headers}")
-                payments.extend(parse_money_table(table))
+                tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', blob, re.IGNORECASE | re.DOTALL)
+                print(f"[LK] regex tr_blocks={len(tr_blocks)}")
+                for tr_html in tr_blocks:
+                    cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
+                    if not cell_html:
+                        cell_html = re.split(r'<br\s*/?>', tr_html, flags=re.IGNORECASE)
+                    cells = []
+                    for c in cell_html:
+                        text = re.sub(r'<[^>]+>', ' ', c)
+                        text = (text.replace('&nbsp;', ' ').replace('&amp;', '&')
+                                    .replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+                                    .replace('\xa0', ' '))
+                        text = re.sub(r'\s+', ' ', text).strip()
+                        if text:
+                            cells.append(text)
+                    if len(cells) < 2:
+                        continue
 
-            # Если стандартный парсер ничего не нашёл — fallback: ищем строки с датой+суммой
-            if not payments:
-                date_re_local = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
-                amount_re_local = re.compile(r'(-?\d+[.,]?\d{0,2})\s*(?:руб|₽|р\.?)', re.IGNORECASE)
-                for table in tables:
-                    for tr in table.find_all('tr'):
-                        cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
-                        if len(cells) < 2:
+                    date_str = ''
+                    date_idx = -1
+                    for i, cell in enumerate(cells):
+                        dm = date_re.search(cell)
+                        if dm:
+                            date_str = dm.group(0)
+                            date_idx = i
+                            break
+                    if not date_str:
+                        continue
+
+                    amount_str = ''
+                    amount_idx = -1
+                    for i, cell in enumerate(cells):
+                        if i == date_idx:
                             continue
-                        full = ' | '.join(cells)
-                        dm = date_re_local.search(full)
-                        if not dm:
+                        m = re.search(r'-?\+?\d+(?:[.,]\d+)?', cell)
+                        if not m:
                             continue
-                        # ищем сумму в любой ячейке кроме той где дата
-                        amount_val = ''
-                        for cell in cells:
-                            if dm.group(0) in cell:
-                                continue
-                            cleaned = cell.replace(' ', '').replace('\xa0', '')
-                            am = re.search(r'(-?\+?\d+(?:[.,]\d+)?)', cleaned)
-                            if am and abs(float(am.group(1).replace(',', '.'))) >= 1:
-                                amount_val = am.group(1).replace(',', '.')
-                                break
-                        if not amount_val:
+                        try:
+                            val = float(m.group(0).replace(',', '.').replace('+', ''))
+                        except Exception:
                             continue
-                        comment = ' '.join(c for c in cells if dm.group(0) not in c and amount_val not in c.replace(' ', '').replace('\xa0', ''))[:300]
-                        payments.append({
-                            'date': dm.group(0),
-                            'amount': amount_val,
-                            'comment': comment,
-                            'balance_after': '',
-                        })
+                        if abs(val) >= 0.5:
+                            amount_str = m.group(0)
+                            amount_idx = i
+                            break
+                    if not amount_str:
+                        continue
+
+                    comment_str = ''
+                    for i in range(len(cells) - 1, -1, -1):
+                        if i in (date_idx, amount_idx):
+                            continue
+                        cell = cells[i]
+                        if re.fullmatch(r'-?\+?\d+(?:[.,]\d+)?', cell):
+                            continue
+                        if len(cell) > 2:
+                            comment_str = cell
+                            break
+
+                    balance_str = ''
+                    for i, cell in enumerate(cells):
+                        if i in (date_idx, amount_idx):
+                            continue
+                        if re.fullmatch(r'-?\+?\d+(?:[.,]\d+)?', cell):
+                            balance_str = cell
+                            break
+
+                    payments.append({
+                        'date': date_str,
+                        'amount': amount_str.replace(',', '.').replace('+', ''),
+                        'comment': comment_str[:300],
+                        'balance_after': balance_str,
+                    })
+
+                if payments:
+                    print(f"[LK] regex parsed={len(payments)}")
+                    break
 
             if payments:
                 print(f"[LK] payments found via {method} {url} = {len(payments)}")
