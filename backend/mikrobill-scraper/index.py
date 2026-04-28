@@ -608,10 +608,11 @@ def lk_get_payments(lk_session, login):
         if payments:
             break
 
+    # Дедуп ТОЛЬКО строго идентичных строк — балансы after разные → платежи разные
     seen = set()
     uniq = []
     for p in payments:
-        key = (p.get('date', ''), p.get('amount', ''), p.get('comment', '')[:40])
+        key = (p.get('date', ''), p.get('amount', ''), p.get('comment', ''), p.get('balance_after', ''))
         if key in seen:
             continue
         seen.add(key)
