@@ -327,8 +327,10 @@ def lk_get_payments(lk_session, login):
     date1 = (today - _dt.timedelta(days=365 * 2)).strftime('%d.%m.%Y')
     date2 = today.strftime('%d.%m.%Y')
 
-    # Прямой URL финансовой страницы с историей платежей
+    # Прямой URL финансовой страницы с историей платежей.
+    # С параметрами диапазона дат — иначе ЛК отдаёт только текущий месяц.
     base_urls = [
+        f'http://lk.arttele.ru/payments.php?date1={date1}&date2={date2}&records=99999',
         'http://lk.arttele.ru/payments.php',
         'http://lk.arttele.ru/index.php?menu=payments',
     ]
@@ -487,11 +489,15 @@ def lk_get_payments(lk_session, login):
                     target_urls.append('http://lk.arttele.ru/' + iframe_src.lstrip('/'))
             for lt in link_targets[:10]:
                 if lt.startswith('http'):
-                    target_urls.append(lt)
+                    base = lt
                 elif lt.startswith('/'):
-                    target_urls.append('http://lk.arttele.ru' + lt)
+                    base = 'http://lk.arttele.ru' + lt
                 else:
-                    target_urls.append('http://lk.arttele.ru/' + lt)
+                    base = 'http://lk.arttele.ru/' + lt.lstrip('./')
+                # добавляем параметры диапазона дат
+                sep = '&' if '?' in base else '?'
+                target_urls.append(f'{base}{sep}date1={date1}&date2={date2}&records=99999')
+                target_urls.append(base)
 
             # Если нашли потенциальные внутренние ссылки — загружаем их и парсим
             extra_html_blobs = [html]
@@ -599,7 +605,10 @@ def lk_get_payments(lk_session, login):
                     })
 
                 if payments:
-                    print(f"[LK] regex parsed={len(payments)}")
+                    # Считаем платежи по 100 руб для отладки
+                    p100 = [p for p in payments if p.get('amount') == '100.00']
+                    print(f"[LK] regex parsed={len(payments)} p100_count={len(p100)}")
+                    print(f"[LK] first 5 payments: {[(p['date'], p['amount'], p.get('balance_after')) for p in payments[:5]]}")
                     break
 
             if payments:
