@@ -509,18 +509,53 @@ def lk_get_payments(lk_session, login):
                 except Exception as e:
                     print(f"[LK] sub error {tu}: {e}")
 
-            # Парсим сырой HTML через regex — надёжнее BeautifulSoup на кривом markup
+            # Месяц словом → номер
+            months_ru = {
+                'январ': 1, 'феврал': 2, 'март': 3, 'апрел': 4, 'мая': 5, 'мае': 5, 'май': 5,
+                'июн': 6, 'июл': 7, 'август': 8, 'сентябр': 9, 'октябр': 10, 'ноябр': 11, 'декабр': 12,
+            }
+
+            def parse_lk_date(text):
+                """'18 Апреля 00:58' или '01.04.2026 12:30' → 'DD.MM.YYYY HH:MM'."""
+                t = text.strip().lower()
+                # формат с цифрами (на всякий случай)
+                m = re.search(r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?', t)
+                if m:
+                    d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                    if y < 100:
+                        y += 2000
+                    h = m.group(4) or '00'
+                    mi = m.group(5) or '00'
+                    return f"{d:02d}.{mo:02d}.{y} {int(h):02d}:{int(mi):02d}"
+                # формат "18 Апреля 00:58"
+                m = re.search(r'(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?(?:\s+(\d{1,2}):(\d{2}))?', t)
+                if m:
+                    d = int(m.group(1))
+                    mon_word = m.group(2)
+                    mo = 0
+                    for k, v in months_ru.items():
+                        if mon_word.startswith(k):
+                            mo = v
+                            break
+                    if mo:
+                        y = int(m.group(3)) if m.group(3) else _dt.date.today().year
+                        h = m.group(4) or '00'
+                        mi = m.group(5) or '00'
+                        return f"{d:02d}.{mo:02d}.{y} {int(h):02d}:{int(mi):02d}"
+                return ''
+
             for blob in extra_html_blobs:
                 tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', blob, re.IGNORECASE | re.DOTALL)
                 print(f"[LK] regex tr_blocks={len(tr_blocks)}")
-                debug_dumped = 0
                 for tr_idx, tr_html in enumerate(tr_blocks):
                     cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
-                    if not cell_html:
-                        cell_html = re.split(r'<br\s*/?>', tr_html, flags=re.IGNORECASE)
-                    if debug_dumped < 3 and tr_idx > 0:
-                        debug_dumped += 1
-                        print(f"[LK] tr#{tr_idx} (cells={len(cell_html)}): {tr_html[:600]!r}")
+                    if len(cell_html) < 4:
+                        continue
+                    # Извлекаем тип операции из иконки (fa-plus-circle = пополнение, fa-envelope-open = начисление и т.д.)
+                    icon_html = cell_html[1] if len(cell_html) > 1 else ''
+                    icon_match = re.search(r'fa-([a-z\-]+)', icon_html, re.IGNORECASE)
+                    op_type = icon_match.group(1) if icon_match else ''
+
                     cells = []
                     for c in cell_html:
                         text = re.sub(r'<[^>]+>', ' ', c)
@@ -528,65 +563,39 @@ def lk_get_payments(lk_session, login):
                                     .replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
                                     .replace('\xa0', ' '))
                         text = re.sub(r'\s+', ' ', text).strip()
-                        if text:
-                            cells.append(text)
-                    if len(cells) < 2:
-                        continue
+                        cells.append(text)
 
-                    date_str = ''
-                    date_idx = -1
-                    for i, cell in enumerate(cells):
-                        dm = date_re.search(cell)
-                        if dm:
-                            date_str = dm.group(0)
-                            date_idx = i
-                            break
+                    # Жёсткая структура: [дата, иконка, сумма, баланс, примечание]
+                    date_str = parse_lk_date(cells[0])
                     if not date_str:
                         continue
 
-                    amount_str = ''
-                    amount_idx = -1
-                    for i, cell in enumerate(cells):
-                        if i == date_idx:
-                            continue
-                        m = re.search(r'-?\+?\d+(?:[.,]\d+)?', cell)
-                        if not m:
-                            continue
-                        try:
-                            val = float(m.group(0).replace(',', '.').replace('+', ''))
-                        except Exception:
-                            continue
-                        if abs(val) >= 0.5:
-                            amount_str = m.group(0)
-                            amount_idx = i
-                            break
-                    if not amount_str:
+                    amount_match = re.search(r'-?\d+(?:[.,]\d+)?', cells[2])
+                    if not amount_match:
+                        continue
+                    try:
+                        amount_val = float(amount_match.group(0).replace(',', '.'))
+                    except Exception:
+                        continue
+                    if abs(amount_val) < 0.01:
+                        # Пропускаем нулевые "начисления"
                         continue
 
-                    comment_str = ''
-                    for i in range(len(cells) - 1, -1, -1):
-                        if i in (date_idx, amount_idx):
-                            continue
-                        cell = cells[i]
-                        if re.fullmatch(r'-?\+?\d+(?:[.,]\d+)?', cell):
-                            continue
-                        if len(cell) > 2:
-                            comment_str = cell
-                            break
+                    balance_match = re.search(r'-?\d+(?:[.,]\d+)?', cells[3]) if len(cells) > 3 else None
+                    balance_str = balance_match.group(0).replace(',', '.') if balance_match else ''
 
-                    balance_str = ''
-                    for i, cell in enumerate(cells):
-                        if i in (date_idx, amount_idx):
-                            continue
-                        if re.fullmatch(r'-?\+?\d+(?:[.,]\d+)?', cell):
-                            balance_str = cell
-                            break
+                    comment_str = cells[4] if len(cells) > 4 else ''
+
+                    # Тип операции: пополнение vs начисление
+                    is_payment = 'plus' in op_type or 'arrow-up' in op_type or 'wallet' in op_type or 'money' in op_type
+                    is_charge = 'envelope' in op_type or 'minus' in op_type or 'arrow-down' in op_type
 
                     payments.append({
                         'date': date_str,
-                        'amount': amount_str.replace(',', '.').replace('+', ''),
+                        'amount': f"{amount_val:.2f}",
                         'comment': comment_str[:300],
                         'balance_after': balance_str,
+                        'type': 'payment' if is_payment else ('charge' if is_charge else 'other'),
                     })
 
                 if payments:
