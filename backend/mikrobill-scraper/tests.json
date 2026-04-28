@@ -24,6 +24,12 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "string"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "News list",
+      "method": "GET",
+      "path": "/?action=news",
+      "expectedStatus": 200
     }
   ]
 }

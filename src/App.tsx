@@ -24,6 +24,7 @@ import RequisitesPage from "./pages/RequisitesPage";
 import OfferPage from "./pages/OfferPage";
 import NotFound from "./pages/NotFound";
 import ChatWidget from "./components/ChatWidget";
+import NewsSidebar from "./components/NewsSidebar";
 
 const queryClient = new QueryClient();
 
@@ -57,6 +58,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
         <ChatWidget />
+        <NewsSidebar />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

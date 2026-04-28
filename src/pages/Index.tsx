@@ -2,6 +2,7 @@ import Navbar from "@/components/Navbar";
 import HeroSection from "@/components/index-page/HeroSection";
 import ServicesAndTariffs from "@/components/index-page/ServicesAndTariffs";
 import CoverageAndFaq from "@/components/index-page/CoverageAndFaq";
+import NewsPreview from "@/components/index-page/NewsPreview";
 import LkAndFooter from "@/components/index-page/LkAndFooter";
 
 const HERO_IMG = "https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/files/9344e7ca-fcbc-4475-8001-83fa179e1412.jpg";
@@ -28,6 +29,8 @@ export default function Index() {
       <HeroSection heroImg={HERO_IMG} scrollTo={scrollTo} />
 
       <ServicesAndTariffs />
+
+      <NewsPreview />
 
       <CoverageAndFaq heroImg={HERO_IMG} cityImg={CITY_IMG} workImg={WORK_IMG} />
 

@@ -29,10 +29,104 @@ def handler(event, context):
         return handle_auth(event, cors)
     elif action == 'user_info':
         return handle_user_info(event, cors)
+    elif action == 'news':
+        return handle_news(event, cors)
     elif action == 'ping':
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'status': 'ok'})}
     else:
         return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'Unknown action'})}
+
+
+def handle_news(event, cors):
+    """Получает список объявлений (новостей) из MikroBill (allnews.php)."""
+    params = event.get('queryStringParameters') or {}
+    try:
+        limit = int(params.get('limit', '0') or 0)
+    except Exception:
+        limit = 0
+
+    try:
+        r = requests.get('https://lk.arttele.ru/kassa/allnews.php', timeout=15)
+        r.encoding = 'utf-8'
+        html = r.text
+    except Exception as e:
+        print(f"[MIKROBILL] news fetch error: {e}")
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'news': []}, ensure_ascii=False)}
+
+    soup = BeautifulSoup(html, 'html.parser')
+    news = []
+
+    # Стратегия 1: ищем блоки с датами (типичный шаблон MikroBill)
+    date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}')
+
+    # Пробуем найти таблицу
+    for table in soup.find_all('table'):
+        rows = table.find_all('tr')
+        if len(rows) < 1:
+            continue
+        for tr in rows:
+            cells = tr.find_all(['td', 'th'])
+            if not cells:
+                continue
+            full_text = tr.get_text('\n', strip=True)
+            if not full_text or len(full_text) < 10:
+                continue
+            date_match = date_re.search(full_text)
+            if not date_match:
+                continue
+            date = date_match.group(0)
+            # title = первая строка (без даты), text = остальное
+            lines = [ln.strip() for ln in full_text.split('\n') if ln.strip()]
+            title = ''
+            text_parts = []
+            for ln in lines:
+                if date_re.search(ln) and not title:
+                    cleaned = date_re.sub('', ln).strip(' -:.,')
+                    if cleaned:
+                        title = cleaned
+                    continue
+                if not title:
+                    title = ln
+                else:
+                    text_parts.append(ln)
+            text = '\n'.join(text_parts).strip()
+            if title or text:
+                news.append({'date': date, 'title': title or 'Объявление', 'text': text})
+
+    # Стратегия 2: если не нашли в таблицах — ищем по абзацам/div
+    if not news:
+        for block in soup.find_all(['div', 'p', 'article']):
+            full_text = block.get_text('\n', strip=True)
+            if not full_text or len(full_text) < 20:
+                continue
+            date_match = date_re.search(full_text)
+            if not date_match:
+                continue
+            # пропускаем вложенные
+            if block.find(['div', 'p', 'article']):
+                continue
+            date = date_match.group(0)
+            lines = [ln.strip() for ln in full_text.split('\n') if ln.strip()]
+            title = lines[0] if lines else 'Объявление'
+            text = '\n'.join(lines[1:]).strip()
+            news.append({'date': date, 'title': title, 'text': text})
+
+    # Дедуп
+    seen = set()
+    uniq = []
+    for n in news:
+        key = (n['date'], n['title'][:60])
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(n)
+    news = uniq
+
+    if limit > 0:
+        news = news[:limit]
+
+    print(f"[MIKROBILL] news count={len(news)}")
+    return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'news': news}, ensure_ascii=False)}
 
 
 def kassa_session():
