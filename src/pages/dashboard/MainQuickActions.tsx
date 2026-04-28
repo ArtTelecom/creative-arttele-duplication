@@ -1,4 +1,5 @@
 import Icon from "@/components/ui/icon";
+import NewsBlock from "@/components/dashboard/NewsBlock";
 import {
   TabKey,
   UserData,
@@ -54,29 +55,7 @@ export default function MainQuickActions({
         </div>
       </GlassCard>
 
-      <GlassCard className="p-6">
-        <h3 className="text-lg font-bold text-white font-montserrat mb-4 flex items-center gap-2">
-          <Icon name="Megaphone" size={20} style={{ color: "#f59e0b" }} />
-          Объявления
-        </h3>
-        <div
-          className="p-4 rounded-xl flex items-start gap-3"
-          style={{
-            background: "rgba(245, 158, 11, 0.06)",
-            border: "1px solid rgba(245, 158, 11, 0.15)",
-          }}
-        >
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: "rgba(245, 158, 11, 0.15)" }}>
-            <Icon name="AlertTriangle" size={18} style={{ color: "#f59e0b" }} />
-          </div>
-          <div>
-            <p className="text-white font-semibold text-sm">Плановые технические работы</p>
-            <p className="text-white/50 text-sm mt-1">
-              20.04.2026 с 02:00 до 06:00 будут проводиться плановые работы на сети. Возможны кратковременные перерывы в предоставлении услуг.
-            </p>
-          </div>
-        </div>
-      </GlassCard>
+      <NewsBlock />
     </>
   );
 }
