@@ -1083,21 +1083,6 @@ def handle_user_info(event, cors):
     if 'name="pass"' in lk_resp.text:
         return {'statusCode': 401, 'headers': cors, 'body': json.dumps({'error': 'Auth failed'})}
 
-    # ПРОВЕРКА ВЛАДЕЛЬЦА СЕССИИ: грузим главную ЛК и убеждаемся,
-    # что HTML принадлежит именно этому логину (защита от чужих платежей).
-    session_owner_ok = False
-    try:
-        idx = lk_session.get('http://lk.arttele.ru/index.php', timeout=10)
-        if idx.apparent_encoding:
-            idx.encoding = idx.apparent_encoding
-        idx_html = idx.text or ''
-        if login and login in idx_html:
-            session_owner_ok = True
-        else:
-            print(f"[LK] session owner mismatch: login={login} not found in index.php")
-    except Exception as e:
-        print(f"[LK] index check error: {e}")
-
     session = kassa_session()
     found = kassa_find_user(session, login)
     if not found:
@@ -1106,14 +1091,37 @@ def handle_user_info(event, cors):
     info = kassa_get_user_info(session, login)
     user = build_user_data(login, found, info, session)
 
-    # Платежи берём ТОЛЬКО если уверены, что сессия принадлежит этому логину
+    # ПРОВЕРКА ВЛАДЕЛЬЦА СЕССИИ: грузим главную ЛК и убеждаемся,
+    # что HTML принадлежит именно этому абоненту. Сравниваем с договором,
+    # ФИО, телефоном, логином — любое надёжное совпадение подтверждает сессию.
+    session_owner_ok = False
+    candidates = []
+    for v in [user.get('account'), user.get('login'), login,
+              user.get('phone'), user.get('name')]:
+        if v and isinstance(v, str):
+            v_clean = v.strip()
+            if len(v_clean) >= 4:
+                candidates.append(v_clean)
+    try:
+        idx = lk_session.get('http://lk.arttele.ru/index.php', timeout=10)
+        if idx.apparent_encoding:
+            idx.encoding = idx.apparent_encoding
+        idx_html = idx.text or ''
+        for c in candidates:
+            if c and c in idx_html:
+                session_owner_ok = True
+                print(f"[LK] session owner verified by '{c}'")
+                break
+        if not session_owner_ok:
+            print(f"[LK] session owner mismatch: none of {candidates} found in index.php")
+    except Exception as e:
+        print(f"[LK] index check error: {e}")
+
+    # Платежи берём ТОЛЬКО если уверены, что сессия принадлежит этому абоненту
     payments = []
     if session_owner_ok:
         try:
-            raw_payments = lk_get_payments(lk_session, login)
-            # Доп. фильтр: если платёж содержит чужой логин/договор в комментарии — выкидываем
-            payments = [p for p in raw_payments if login not in (p.get('comment') or '') or True]
-            payments = raw_payments
+            payments = lk_get_payments(lk_session, login)
         except Exception as e:
             print(f"[LK] payments error: {e}")
     else:
