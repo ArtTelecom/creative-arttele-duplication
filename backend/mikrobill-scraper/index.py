@@ -315,38 +315,114 @@ def pick_first(info, keys):
 
 
 def kassa_get_payments(session, login):
-    r = session.get(
-        KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login),
-        timeout=10,
-    )
-    r.encoding = 'utf-8'
-    soup = BeautifulSoup(r.text, 'html.parser')
-
+    """Берёт историю платежей со страницы usrstat.php?client=...&option2=2 (раздел «Платежи»)."""
     payments = []
-    for table in soup.find_all('table'):
-        header_row = table.find('tr')
-        if not header_row:
+    urls = [
+        KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login) + '&option2=2',
+        KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login),
+    ]
+
+    for url in urls:
+        try:
+            r = session.get(url, timeout=15)
+            r.encoding = 'utf-8'
+            html = r.text
+        except Exception as e:
+            print(f"[MIKROBILL] payments fetch error {url}: {e}")
             continue
-        headers = [th.get_text(strip=True).lower() for th in header_row.find_all(['th', 'td'])]
-        if not any('дата' in h or 'сумма' in h or 'платеж' in h or 'оплат' in h for h in headers):
-            continue
-        for tr in table.find_all('tr')[1:]:
-            cells = [td.get_text(strip=True) for td in tr.find_all('td')]
-            if len(cells) >= 2:
+
+        soup = BeautifulSoup(html, 'html.parser')
+        date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
+        amount_re = re.compile(r'(-?\+?\d+(?:[.,]\d+)?)')
+
+        for table in soup.find_all('table'):
+            rows = table.find_all('tr')
+            if not rows:
+                continue
+            header_row = rows[0]
+            headers = [th.get_text(' ', strip=True).lower() for th in header_row.find_all(['th', 'td'])]
+            is_payments = any(
+                'дата' in h or 'сумма' in h or 'платёж' in h or 'платеж' in h or 'оплат' in h or 'попол' in h
+                for h in headers
+            )
+            if not is_payments:
+                continue
+
+            # Определяем индексы колонок
+            idx_date = idx_amount = idx_comment = idx_method = -1
+            for i, h in enumerate(headers):
+                if idx_date < 0 and 'дата' in h:
+                    idx_date = i
+                if idx_amount < 0 and ('сумма' in h or 'платёж' in h or 'платеж' in h or 'оплат' in h or 'попол' in h):
+                    idx_amount = i
+                if idx_comment < 0 and ('коммент' in h or 'примеч' in h or 'операц' in h or 'описан' in h):
+                    idx_comment = i
+                if idx_method < 0 and ('способ' in h or 'тип' in h or 'касса' in h or 'канал' in h):
+                    idx_method = i
+
+            for tr in rows[1:]:
+                cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
+                if not cells or len(cells) < 2:
+                    continue
                 payment = {}
-                for j, cell in enumerate(cells):
-                    date_match = re.search(r'\d{2}[./]\d{2}[./]\d{2,4}', cell)
-                    sum_match = re.search(r'(-?\+?\d+[.,]?\d*)', cell)
-                    if date_match and 'date' not in payment:
-                        payment['date'] = date_match.group(0)
-                    elif sum_match and 'amount' not in payment and j > 0:
-                        payment['amount'] = sum_match.group(1).replace(',', '.')
-                    elif cell and 'comment' not in payment and not date_match:
-                        payment['comment'] = cell
-                if payment.get('date') or payment.get('amount'):
+
+                # По индексам
+                if 0 <= idx_date < len(cells):
+                    dm = date_re.search(cells[idx_date])
+                    if dm:
+                        payment['date'] = dm.group(0)
+                if 0 <= idx_amount < len(cells):
+                    am = amount_re.search(cells[idx_amount].replace(' ', ''))
+                    if am:
+                        payment['amount'] = am.group(1).replace(',', '.')
+                if 0 <= idx_comment < len(cells):
+                    payment['comment'] = cells[idx_comment]
+                if 0 <= idx_method < len(cells):
+                    method = cells[idx_method]
+                    if method:
+                        payment['comment'] = (payment.get('comment') or '')
+                        payment['comment'] = (payment['comment'] + ' · ' + method).strip(' ·') if payment['comment'] else method
+
+                # Fallback: если не размеченные колонки, ищем дату/сумму в любом столбце
+                if 'date' not in payment or 'amount' not in payment:
+                    for j, cell in enumerate(cells):
+                        if 'date' not in payment:
+                            dm = date_re.search(cell)
+                            if dm:
+                                payment['date'] = dm.group(0)
+                                continue
+                        if 'amount' not in payment and j > 0:
+                            am = amount_re.search(cell.replace(' ', ''))
+                            if am:
+                                val = am.group(1).replace(',', '.')
+                                # пропустим случайные числа типа "1" в первой колонке
+                                try:
+                                    if abs(float(val)) >= 1:
+                                        payment['amount'] = val
+                                except Exception:
+                                    pass
+
+                if payment.get('date') and payment.get('amount'):
                     payments.append(payment)
 
-    return payments[:50]
+            if payments:
+                break  # таблица найдена — больше не обрабатываем
+
+        if payments:
+            break  # с первого URL получили данные
+
+    # Дедуп по дате+сумме
+    seen = set()
+    uniq = []
+    for p in payments:
+        key = (p.get('date', ''), p.get('amount', ''))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+
+    print(f"[MIKROBILL] payments count={len(uniq)} login={login}")
+    return uniq[:100]
 
 
 def build_user_data(login, found, info, session=None):
