@@ -798,28 +798,138 @@ def kassa_get_payments(session, login, uid=''):
 
     all_attempts = [('GET', u, None) for u in urls]
 
+    # Месяцы для парсинга формата "18 Апреля 00:58"
+    months_ru = {
+        'январ': 1, 'феврал': 2, 'март': 3, 'апрел': 4, 'мая': 5, 'мае': 5, 'май': 5,
+        'июн': 6, 'июл': 7, 'август': 8, 'сентябр': 9, 'октябр': 10, 'ноябр': 11, 'декабр': 12,
+    }
+
+    def parse_kassa_date(text):
+        t = text.strip().lower()
+        m = re.search(r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?', t)
+        if m:
+            d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if y < 100:
+                y += 2000
+            h = m.group(4) or '00'
+            mi = m.group(5) or '00'
+            return f"{d:02d}.{mo:02d}.{y} {int(h):02d}:{int(mi):02d}"
+        m = re.search(r'(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?(?:\s+(\d{1,2}):(\d{2}))?', t)
+        if m:
+            d = int(m.group(1))
+            mon_word = m.group(2)
+            mo = 0
+            for k, v in months_ru.items():
+                if mon_word.startswith(k):
+                    mo = v
+                    break
+            if mo:
+                import datetime as _dt
+                y = int(m.group(3)) if m.group(3) else _dt.date.today().year
+                h = m.group(4) or '00'
+                mi = m.group(5) or '00'
+                return f"{d:02d}.{mo:02d}.{y} {int(h):02d}:{int(mi):02d}"
+        return ''
+
     for method, url, data in all_attempts:
         html = try_request(url, method, data)
         if not html:
             continue
 
-        # признак, что на странице вообще есть таблица отчёта
         has_money_marker = ('финансов' in html.lower() or 'moneyslist' in html.lower()
                             or 'комментар' in html.lower())
 
         print(f"[MIKROBILL] payments {method} url={url} html_len={len(html)} marker={has_money_marker}")
-        soup = BeautifulSoup(html, 'html.parser')
 
-        # 1) Блок #moneyslist
-        money_block = soup.find(id='moneyslist') or soup.select_one('.center2#moneyslist') or soup.select_one('.center2')
-        if money_block:
-            for table in money_block.find_all('table'):
-                payments.extend(parse_money_table(table))
+        # Regex по сырому HTML (надёжнее BeautifulSoup)
+        tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
+        print(f"[MIKROBILL] kassa tr_blocks={len(tr_blocks)}")
+        debug_dump = 0
+        for tr_html in tr_blocks:
+            cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
+            if len(cell_html) < 3:
+                continue
 
-        # 2) Любые таблицы страницы
-        if not payments:
-            for table in soup.find_all('table'):
-                payments.extend(parse_money_table(table))
+            cells = []
+            for c in cell_html:
+                text = re.sub(r'<[^>]+>', ' ', c)
+                text = (text.replace('&nbsp;', ' ').replace('&amp;', '&')
+                            .replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+                            .replace('\xa0', ' '))
+                text = re.sub(r'\s+', ' ', text).strip()
+                cells.append(text)
+
+            # Пропускаем строку-заголовок
+            if any('сумма' in c.lower() or 'дата' in c.lower() or 'время' in c.lower() for c in cells if len(c) < 30):
+                # Может быть это header — проверим по наличию даты
+                if not any(parse_kassa_date(c) for c in cells):
+                    continue
+
+            # Дата
+            date_str = ''
+            date_idx = -1
+            for i, cell in enumerate(cells):
+                d = parse_kassa_date(cell)
+                if d:
+                    date_str = d
+                    date_idx = i
+                    break
+            if not date_str:
+                continue
+
+            # Сумма — первая клетка с числом != балансом (берём первое число после даты)
+            amount_str = ''
+            amount_idx = -1
+            for i, cell in enumerate(cells):
+                if i == date_idx:
+                    continue
+                m = re.search(r'-?\d+(?:[.,]\d+)?', cell)
+                if not m:
+                    continue
+                try:
+                    val = float(m.group(0).replace(',', '.'))
+                except Exception:
+                    continue
+                if abs(val) >= 0.01:
+                    amount_str = f"{val:.2f}"
+                    amount_idx = i
+                    break
+            if not amount_str:
+                continue
+
+            # Баланс — следующее число
+            balance_str = ''
+            for i, cell in enumerate(cells):
+                if i in (date_idx, amount_idx):
+                    continue
+                m = re.search(r'-?\d+(?:[.,]\d+)?', cell)
+                if m:
+                    try:
+                        balance_str = f"{float(m.group(0).replace(',', '.')):.2f}"
+                        break
+                    except Exception:
+                        pass
+
+            # Комментарий — последняя длинная клетка
+            comment_str = ''
+            for i in range(len(cells) - 1, -1, -1):
+                if i in (date_idx, amount_idx):
+                    continue
+                cell = cells[i]
+                if len(cell) > 3 and not re.fullmatch(r'-?\d+(?:[.,]\d+)?', cell):
+                    comment_str = cell
+                    break
+
+            if debug_dump < 3:
+                print(f"[MIKROBILL] kassa row: date={date_str} amount={amount_str} bal={balance_str} cmt={comment_str[:60]}")
+                debug_dump += 1
+
+            payments.append({
+                'date': date_str,
+                'amount': amount_str,
+                'comment': comment_str[:300],
+                'balance_after': balance_str,
+            })
 
         if payments:
             print(f"[MIKROBILL] payments found via {method} {url} = {len(payments)}")
@@ -1012,15 +1122,19 @@ def handle_user_info(event, cors):
     info = kassa_get_user_info(session, login)
     user = build_user_data(login, found, info, session)
 
-    # Сначала пробуем ЛК-сессию абонента (lk.arttele.ru) — там не нужен короткий UID
+    # Kassa-источник (usrstat.php) актуальный — оттуда и баланс приходит
     payments = []
     try:
-        payments = lk_get_payments(lk_session, login)
-    except Exception as e:
-        print(f"[LK] payments error: {e}")
-
-    if not payments:
         payments = kassa_get_payments(session, login, found.get('uid', ''))
+    except Exception as e:
+        print(f"[MIKROBILL] kassa payments error: {e}")
+
+    # Если касса ничего не дала — fallback на ЛК-сессию абонента
+    if not payments:
+        try:
+            payments = lk_get_payments(lk_session, login)
+        except Exception as e:
+            print(f"[LK] payments error: {e}")
 
     user['payments'] = payments
 
