@@ -513,10 +513,14 @@ def lk_get_payments(lk_session, login):
             for blob in extra_html_blobs:
                 tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', blob, re.IGNORECASE | re.DOTALL)
                 print(f"[LK] regex tr_blocks={len(tr_blocks)}")
+                debug_dumped = False
                 for tr_html in tr_blocks:
                     cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
                     if not cell_html:
                         cell_html = re.split(r'<br\s*/?>', tr_html, flags=re.IGNORECASE)
+                    if not debug_dumped:
+                        debug_dumped = True
+                        print(f"[LK] sample tr (cells={len(cell_html)}): {tr_html[:500]!r}")
                     cells = []
                     for c in cell_html:
                         text = re.sub(r'<[^>]+>', ' ', c)
