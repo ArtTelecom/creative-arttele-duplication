@@ -327,20 +327,10 @@ def lk_get_payments(lk_session, login):
     date1 = (today - _dt.timedelta(days=365 * 2)).strftime('%d.%m.%Y')
     date2 = today.strftime('%d.%m.%Y')
 
+    # Рабочие пути в ЛК arttele (status=200, валидный HTML)
     base_urls = [
-        'http://lk.arttele.ru/finance.php',
-        'http://lk.arttele.ru/payments.php',
-        'http://lk.arttele.ru/oplaty.php',
-        'http://lk.arttele.ru/money.php',
-        'http://lk.arttele.ru/moneys.php',
-        'http://lk.arttele.ru/moneyslist.php',
-        'http://lk.arttele.ru/usrstat.php',
-        'http://lk.arttele.ru/index.php?menu=finance',
         'http://lk.arttele.ru/index.php?menu=payments',
-        'http://lk.arttele.ru/index.php?option=finance',
-        'http://lk.arttele.ru/index.php?action=payments',
-        'http://lk.arttele.ru/?menu=finance',
-        'http://lk.arttele.ru/main.php?menu=finance',
+        'http://lk.arttele.ru/index.php?menu=finance',
     ]
 
     date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
@@ -426,12 +416,51 @@ def lk_get_payments(lk_session, login):
             if len(html) < 500:
                 continue
             if 'name="pass"' in html or 'name="login"' in html:
-                # выкинуло на форму логина
                 continue
 
             soup = BeautifulSoup(html, 'html.parser')
-            for table in soup.find_all('table'):
+            tables = soup.find_all('table')
+            print(f"[LK] tables_total={len(tables)}")
+            for ti, table in enumerate(tables):
+                rows = table.find_all('tr')
+                if rows:
+                    headers = [c.get_text(' ', strip=True).lower() for c in rows[0].find_all(['th', 'td'])]
+                    print(f"[LK] table#{ti} rows={len(rows)} headers={headers}")
                 payments.extend(parse_money_table(table))
+
+            # Если стандартный парсер ничего не нашёл — fallback: ищем строки с датой+суммой
+            if not payments:
+                date_re_local = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
+                amount_re_local = re.compile(r'(-?\d+[.,]?\d{0,2})\s*(?:руб|₽|р\.?)', re.IGNORECASE)
+                for table in tables:
+                    for tr in table.find_all('tr'):
+                        cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
+                        if len(cells) < 2:
+                            continue
+                        full = ' | '.join(cells)
+                        dm = date_re_local.search(full)
+                        if not dm:
+                            continue
+                        # ищем сумму в любой ячейке кроме той где дата
+                        amount_val = ''
+                        for cell in cells:
+                            if dm.group(0) in cell:
+                                continue
+                            cleaned = cell.replace(' ', '').replace('\xa0', '')
+                            am = re.search(r'(-?\+?\d+(?:[.,]\d+)?)', cleaned)
+                            if am and abs(float(am.group(1).replace(',', '.'))) >= 1:
+                                amount_val = am.group(1).replace(',', '.')
+                                break
+                        if not amount_val:
+                            continue
+                        comment = ' '.join(c for c in cells if dm.group(0) not in c and amount_val not in c.replace(' ', '').replace('\xa0', ''))[:300]
+                        payments.append({
+                            'date': dm.group(0),
+                            'amount': amount_val,
+                            'comment': comment,
+                            'balance_after': '',
+                        })
+
             if payments:
                 print(f"[LK] payments found via {method} {url} = {len(payments)}")
                 break
@@ -491,25 +520,11 @@ def kassa_get_payments(session, login, uid=''):
         + '&date2=' + requests.utils.quote(date2)
         + '&records=99999'
     )
-    # AJAX-эндпоинты MikroBill, которые подгружают блок #moneyslist
-    ajax_paths = [
-        '/moneyslist.php',
-        '/moneys.php',
-        '/getmoneys.php',
-        '/usrstat_moneys.php',
-        '/usrstat_money.php',
-        '/usrmoney.php',
-        '/usrstat.php',  # сам usrstat при правильных параметрах
-    ]
+    # Только usrstat.php — другие пути все возвращают 146 байт
     urls = []
     for c in candidates:
         q_client = requests.utils.quote(c)
-        # Сначала AJAX-эндпоинты с полными параметрами
-        for path in ajax_paths:
-            urls.append(KASSA_URL + path + '?client=' + q_client + base_params)
-            urls.append(KASSA_URL + path + '?client=' + q_client + '&date1=' + requests.utils.quote(date1) + '&date2=' + requests.utils.quote(date2) + '&records=99999')
-        # Резервно — обычная страница
-        urls.append(KASSA_URL + '/usrstat.php?client=' + q_client + '&option2=2')
+        urls.append(KASSA_URL + '/usrstat.php?client=' + q_client + base_params)
 
     date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
     amount_re = re.compile(r'^-?\+?\d+(?:[.,]\d+)?$')
@@ -633,16 +648,7 @@ def kassa_get_payments(session, login, uid=''):
             print(f"[MIKROBILL] payments fetch error {method} {url}: {e}")
             return ''
 
-    # POST-запросы на AJAX эндпоинты с form data
-    post_targets = []
-    for c in candidates:
-        for path in ('/moneyslist.php', '/moneys.php', '/getmoneys.php', '/usrstat.php'):
-            post_targets.append((
-                KASSA_URL + path,
-                {'client': c, 'date1': date1, 'date2': date2, 'records': '99999', 'option2': '2'},
-            ))
-
-    all_attempts = [('GET', u, None) for u in urls] + [('POST', u, d) for (u, d) in post_targets]
+    all_attempts = [('GET', u, None) for u in urls]
 
     for method, url, data in all_attempts:
         html = try_request(url, method, data)
