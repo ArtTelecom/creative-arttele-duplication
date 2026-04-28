@@ -315,14 +315,104 @@ def pick_first(info, keys):
 
 
 def kassa_get_payments(session, login, uid=''):
-    """Берёт историю платежей со страницы usrstat.php?client=...&option2=2 (раздел «Платежи»).
+    """Берёт историю платежей.
 
-    В качестве client пробуем сначала UID (как в реальной ссылке MikroBill: client=hVKeyxMZ),
-    потом сам login (телефон/договор) — какой-то из них точно сработает.
+    MikroBill для платежей требует внутренний короткий UID (как в ссылке client=hVKeyxMZ),
+    обычные login/uid вернут страницу без таблицы платежей. Пробуем сначала найти этот
+    короткий ключ через api.php?action=getuid, затем дёргаем usrstat.php?client=...&option2=2.
+    Дополнительно пробуем стандартные API: GET_PAYMENTS / get_pays.
     """
     payments = []
+
+    # 1) Пробуем получить «короткий» client-key через различные API
+    def _try_get_short_uid(value):
+        for action in ('getuid', 'GET_UID', 'getclientid', 'GET_CLIENT_ID', 'finduid'):
+            try:
+                r = session.get(
+                    KASSA_URL + '/api.php?action=' + action + '&value=' + requests.utils.quote(value),
+                    timeout=10,
+                )
+                r.encoding = 'utf-8'
+                txt = (r.text or '').strip()
+                if txt and len(txt) < 30 and re.match(r'^[A-Za-z0-9_\-]{4,20}$', txt):
+                    print(f"[MIKROBILL] short_uid via {action}({value}) = {txt!r}")
+                    return txt
+            except Exception as e:
+                print(f"[MIKROBILL] {action} error: {e}")
+        return ''
+
+    short_uid = ''
+    for v in (login, uid):
+        if v:
+            short_uid = _try_get_short_uid(v)
+            if short_uid:
+                break
+
+    # 2) Пробуем API платежей напрямую
+    for action in ('GET_PAYMENTS', 'getpayments', 'get_pays', 'GET_USER_PAYMENTS'):
+        for value in (login, uid):
+            if not value:
+                continue
+            try:
+                r = session.get(
+                    KASSA_URL + '/api.php?action=' + action + '&value=' + requests.utils.quote(value),
+                    timeout=10,
+                )
+                r.encoding = 'utf-8'
+                txt = (r.text or '').strip()
+                if not txt or '<html' in txt.lower()[:200]:
+                    continue
+                # Формат строк MikroBill — через || или табы. Разбираем универсально.
+                for line in txt.split('\n'):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = re.split(r'\|\||\t|;', line)
+                    parts = [p.strip() for p in parts if p.strip()]
+                    if len(parts) < 2:
+                        continue
+                    date_part = next((p for p in parts if re.search(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}', p)), '')
+                    amount_part = ''
+                    for p in parts:
+                        if p == date_part:
+                            continue
+                        m = re.match(r'^-?\+?\d+(?:[.,]\d+)?$', p.replace(' ', ''))
+                        if m:
+                            amount_part = p.replace(' ', '').replace(',', '.')
+                            break
+                    if date_part and amount_part:
+                        date_match = re.search(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?', date_part)
+                        comment = ' · '.join(p for p in parts if p not in (date_part, amount_part))
+                        payments.append({
+                            'date': date_match.group(0) if date_match else date_part,
+                            'amount': amount_part,
+                            'comment': comment[:200],
+                        })
+                if payments:
+                    print(f"[MIKROBILL] payments via api {action}({value}) = {len(payments)}")
+                    break
+            except Exception as e:
+                print(f"[MIKROBILL] api {action} error: {e}")
+        if payments:
+            break
+
+    if payments:
+        seen = set()
+        uniq = []
+        for p in payments:
+            key = (p.get('date', ''), p.get('amount', ''))
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(p)
+        print(f"[MIKROBILL] payments count={len(uniq)} login={login} (api)")
+        return uniq[:100]
+
+    # 3) Если API ничего не дал — парсим usrstat.php по всем доступным client-ключам
     candidates = []
-    if uid:
+    if short_uid:
+        candidates.append(short_uid)
+    if uid and uid not in candidates:
         candidates.append(uid)
     if login and login not in candidates:
         candidates.append(login)
@@ -331,6 +421,8 @@ def kassa_get_payments(session, login, uid=''):
     for c in candidates:
         urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c) + '&option2=2')
         urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c))
+        urls.append(KASSA_URL + '/payments.php?client=' + requests.utils.quote(c))
+        urls.append(KASSA_URL + '/oplaty.php?client=' + requests.utils.quote(c))
 
     for url in urls:
         try:
