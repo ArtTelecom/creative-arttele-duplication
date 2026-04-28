@@ -341,10 +341,25 @@ def kassa_get_payments(session, login, uid=''):
         + '&date2=' + requests.utils.quote(date2)
         + '&records=99999'
     )
+    # AJAX-эндпоинты MikroBill, которые подгружают блок #moneyslist
+    ajax_paths = [
+        '/moneyslist.php',
+        '/moneys.php',
+        '/getmoneys.php',
+        '/usrstat_moneys.php',
+        '/usrstat_money.php',
+        '/usrmoney.php',
+        '/usrstat.php',  # сам usrstat при правильных параметрах
+    ]
     urls = []
     for c in candidates:
-        urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c) + base_params)
-        urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c) + '&option2=2')
+        q_client = requests.utils.quote(c)
+        # Сначала AJAX-эндпоинты с полными параметрами
+        for path in ajax_paths:
+            urls.append(KASSA_URL + path + '?client=' + q_client + base_params)
+            urls.append(KASSA_URL + path + '?client=' + q_client + '&date1=' + requests.utils.quote(date1) + '&date2=' + requests.utils.quote(date2) + '&records=99999')
+        # Резервно — обычная страница
+        urls.append(KASSA_URL + '/usrstat.php?client=' + q_client + '&option2=2')
 
     date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
     amount_re = re.compile(r'^-?\+?\d+(?:[.,]\d+)?$')
@@ -413,31 +428,60 @@ def kassa_get_payments(session, login, uid=''):
             })
         return result
 
-    for url in urls:
+    headers_req = {
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': KASSA_URL + '/usrstat.php',
+        'User-Agent': 'Mozilla/5.0',
+    }
+
+    def try_request(url, method='GET', data=None):
         try:
-            r = session.get(url, timeout=20)
+            if method == 'POST':
+                r = session.post(url, data=data or {}, headers=headers_req, timeout=20)
+            else:
+                r = session.get(url, headers=headers_req, timeout=20)
             r.encoding = 'utf-8'
-            html = r.text
+            return r.text
         except Exception as e:
-            print(f"[MIKROBILL] payments fetch error {url}: {e}")
+            print(f"[MIKROBILL] payments fetch error {method} {url}: {e}")
+            return ''
+
+    # POST-запросы на AJAX эндпоинты с form data
+    post_targets = []
+    for c in candidates:
+        for path in ('/moneyslist.php', '/moneys.php', '/getmoneys.php', '/usrstat.php'):
+            post_targets.append((
+                KASSA_URL + path,
+                {'client': c, 'date1': date1, 'date2': date2, 'records': '99999', 'option2': '2'},
+            ))
+
+    all_attempts = [('GET', u, None) for u in urls] + [('POST', u, d) for (u, d) in post_targets]
+
+    for method, url, data in all_attempts:
+        html = try_request(url, method, data)
+        if not html:
             continue
 
-        print(f"[MIKROBILL] payments url={url} html_len={len(html)}")
+        # признак, что на странице вообще есть таблица отчёта
+        has_money_marker = ('финансов' in html.lower() or 'moneyslist' in html.lower()
+                            or 'комментар' in html.lower())
+
+        print(f"[MIKROBILL] payments {method} url={url} html_len={len(html)} marker={has_money_marker}")
         soup = BeautifulSoup(html, 'html.parser')
 
-        # 1) Сначала ищем блок #moneyslist (финансовый отчёт)
+        # 1) Блок #moneyslist
         money_block = soup.find(id='moneyslist') or soup.select_one('.center2#moneyslist') or soup.select_one('.center2')
         if money_block:
             for table in money_block.find_all('table'):
                 payments.extend(parse_money_table(table))
 
-        # 2) Если в блоке ничего — обходим все таблицы страницы
+        # 2) Любые таблицы страницы
         if not payments:
             for table in soup.find_all('table'):
                 payments.extend(parse_money_table(table))
 
         if payments:
-            print(f"[MIKROBILL] payments found via {url} = {len(payments)}")
+            print(f"[MIKROBILL] payments found via {method} {url} = {len(payments)}")
             break
 
     # Дедуп по дате+сумме

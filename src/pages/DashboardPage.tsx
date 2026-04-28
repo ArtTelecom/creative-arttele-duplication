@@ -1014,7 +1014,10 @@ function TabStats({
     return isFinite(n) && n > 0 ? sum + n : sum;
   }, 0);
 
-  const lastPayment = paymentsList[0];
+  const lastPayment = paymentsList.find((p) => {
+    const n = parseFloat((p.amount || "0").replace(/\s/g, "").replace(",", "."));
+    return isFinite(n) && n > 0;
+  }) || paymentsList[0];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1079,19 +1082,31 @@ function TabStats({
                 </tr>
               </thead>
               <tbody>
-                {paymentsList.map((row, i) => (
-                  <tr
-                    key={i}
-                    className="border-b last:border-b-0"
-                    style={{ borderColor: "rgba(255,255,255,0.04)" }}
-                  >
-                    <td className="py-3 pr-4 text-white/70">{row.date || "—"}</td>
-                    <td className="py-3 pr-4 font-semibold" style={{ color: "var(--neon-green)" }}>
-                      {row.amount ? `${row.amount} ₽` : "—"}
-                    </td>
-                    <td className="py-3 text-white/60">{row.comment || "—"}</td>
-                  </tr>
-                ))}
+                {paymentsList.map((row, i) => {
+                  const num = parseFloat((row.amount || "0").replace(/\s/g, "").replace(",", "."));
+                  const isCharge = isFinite(num) && num < 0;
+                  const rowBg = isCharge
+                    ? "rgba(239,68,68,0.08)"
+                    : "rgba(0,245,122,0.06)";
+                  const amountColor = isCharge ? "#ef4444" : "var(--neon-green)";
+                  const sign = isCharge ? "" : (num > 0 ? "+" : "");
+                  return (
+                    <tr
+                      key={i}
+                      className="border-b last:border-b-0"
+                      style={{
+                        borderColor: "rgba(255,255,255,0.04)",
+                        background: rowBg,
+                      }}
+                    >
+                      <td className="py-3 pr-4 text-white/70 pl-3">{row.date || "—"}</td>
+                      <td className="py-3 pr-4 font-semibold" style={{ color: amountColor }}>
+                        {row.amount ? `${sign}${row.amount} ₽` : "—"}
+                      </td>
+                      <td className="py-3 pr-3 text-white/70">{row.comment || "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
