@@ -434,6 +434,43 @@ def kassa_get_payments(session, login, uid=''):
         'User-Agent': 'Mozilla/5.0',
     }
 
+    # Шаг 0: загружаем usrstat.php по login и пытаемся вытащить «короткий» внутренний UID
+    # из ссылок/инпутов на странице — он понадобится для финансового отчёта
+    try:
+        first_url = KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login)
+        first_html = session.get(first_url, headers=headers_req, timeout=15).text
+        first_html = first_html if isinstance(first_html, str) else ''
+        # Ищем UID в формате client=XXXXXX в ссылках, action, hidden inputs
+        uid_matches = re.findall(r'client=([A-Za-z0-9]{6,16})', first_html)
+        # фильтруем — это не должно быть длинным числом-телефоном
+        short_uid_extracted = ''
+        for u in uid_matches:
+            if u == login or u == uid:
+                continue
+            if u.isdigit() and len(u) > 10:
+                continue
+            short_uid_extracted = u
+            break
+        if not short_uid_extracted:
+            # Иногда UID в onclick типа open('hVKeyxMZ')
+            m = re.search(r"['\"]([A-Za-z][A-Za-z0-9]{5,12})['\"]", first_html)
+            if m and m.group(1).lower() not in ('option2', 'records', 'submit', 'usrstat'):
+                short_uid_extracted = m.group(1)
+        if short_uid_extracted:
+            print(f"[MIKROBILL] extracted short uid = {short_uid_extracted!r}")
+            if short_uid_extracted not in candidates:
+                candidates.insert(0, short_uid_extracted)
+                # Перестраиваем urls с новым кандидатом
+                urls = []
+                for c in candidates:
+                    q_client = requests.utils.quote(c)
+                    for path in ajax_paths:
+                        urls.append(KASSA_URL + path + '?client=' + q_client + base_params)
+                        urls.append(KASSA_URL + path + '?client=' + q_client + '&date1=' + requests.utils.quote(date1) + '&date2=' + requests.utils.quote(date2) + '&records=99999')
+                    urls.append(KASSA_URL + '/usrstat.php?client=' + q_client + '&option2=2')
+    except Exception as e:
+        print(f"[MIKROBILL] short uid extract error: {e}")
+
     def try_request(url, method='GET', data=None):
         try:
             if method == 'POST':
