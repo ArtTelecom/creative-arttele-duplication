@@ -1109,6 +1109,14 @@ def handle_user_info(event, cors):
             payments = lk_get_payments(lk_session, login)
         except Exception as e:
             print(f"[LK] payments error: {e}")
+        # Фолбек: если LK ничего не вернул — пробуем кассу через kassa-сессию
+        if not payments:
+            try:
+                kassa_uid = (found or {}).get('uid', '') if isinstance(found, dict) else ''
+                payments = kassa_get_payments(session, login, kassa_uid)
+                print(f"[KASSA] fallback payments count={len(payments)} login={login}")
+            except Exception as e:
+                print(f"[KASSA] fallback payments error: {e}")
     else:
         print(f"[LK] skip payments — session not verified for login={login}")
 
