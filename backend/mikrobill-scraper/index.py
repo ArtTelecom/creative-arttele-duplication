@@ -337,54 +337,102 @@ def lk_get_payments(lk_session, login):
     amount_re_loose = re.compile(r'(-?\+?\d+(?:[.,]\d+)?)')
 
     def parse_money_table(table):
+        """Простой и надёжный парсер: ищем строки, где есть дата И число (сумма).
+
+        Заголовок не обязателен — если в строке есть дата + сумма, считаем платежом.
+        """
         result = []
         rows = table.find_all('tr')
-        if len(rows) < 2:
+        if len(rows) < 1:
             return result
+
+        # Определяем индекс колонки "дата" из заголовка, если есть
         header_cells = [c.get_text(' ', strip=True).lower() for c in rows[0].find_all(['th', 'td'])]
-        has_time = any('врем' in h or 'дата' in h for h in header_cells)
-        has_amount = any('сумма' in h for h in header_cells)
-        if not (has_time and has_amount):
-            return result
-
-        idx = {'time': -1, 'amount': -1, 'balance': -1, 'comment': -1, 'cashier': -1}
+        date_col = -1
+        amount_col = -1
+        balance_col = -1
+        comment_col = -1
         for i, h in enumerate(header_cells):
-            if idx['time'] < 0 and ('врем' in h or 'дата' in h):
-                idx['time'] = i
-            elif idx['amount'] < 0 and 'сумма' in h:
-                idx['amount'] = i
-            elif idx['balance'] < 0 and 'баланс' in h:
-                idx['balance'] = i
-            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h or 'назнач' in h):
-                idx['comment'] = i
-            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h or 'плательщ' in h):
-                idx['cashier'] = i
+            if date_col < 0 and ('дата' in h or 'врем' in h):
+                date_col = i
+            elif amount_col < 0 and 'сумма' in h:
+                amount_col = i
+            elif balance_col < 0 and 'баланс' in h:
+                balance_col = i
+            elif comment_col < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h or 'назнач' in h):
+                comment_col = i
 
-        for tr in rows[1:]:
-            cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
+        debug_count = 0
+        for tr in rows:
+            cells = [td.get_text(' ', strip=True).replace('\xa0', ' ') for td in tr.find_all(['td', 'th'])]
             if len(cells) < 2:
                 continue
-            def get(key):
-                i = idx.get(key, -1)
-                return cells[i] if 0 <= i < len(cells) else ''
-            time_raw = get('time')
-            amount_raw = get('amount').replace('\xa0', ' ')
-            dm = date_re.search(time_raw)
-            am = amount_re_loose.search(amount_raw) if amount_raw else None
-            if not dm or not am:
+
+            # Ищем дату в любой клетке (приоритет — известная колонка date_col)
+            date_str = ''
+            date_cell_idx = -1
+            if 0 <= date_col < len(cells):
+                dm = date_re.search(cells[date_col])
+                if dm:
+                    date_str = dm.group(0)
+                    date_cell_idx = date_col
+            if not date_str:
+                for i, cell in enumerate(cells):
+                    dm = date_re.search(cell)
+                    if dm:
+                        date_str = dm.group(0)
+                        date_cell_idx = i
+                        break
+            if not date_str:
                 continue
-            comment_parts = []
-            c = get('comment')
-            if c:
-                comment_parts.append(c)
-            cashier = get('cashier')
-            if cashier:
-                comment_parts.append(cashier)
+
+            # Ищем сумму. Приоритет — amount_col, иначе ищем число в клетках кроме клетки с датой
+            amount_str = ''
+            if 0 <= amount_col < len(cells) and amount_col != date_cell_idx:
+                m = re.search(r'-?\+?\d+(?:[.,]\d+)?', cells[amount_col])
+                if m:
+                    try:
+                        if abs(float(m.group(0).replace(',', '.').replace('+', ''))) >= 0.01:
+                            amount_str = m.group(0)
+                    except Exception:
+                        pass
+            if not amount_str:
+                for i, cell in enumerate(cells):
+                    if i == date_cell_idx:
+                        continue
+                    m = re.search(r'-?\+?\d+(?:[.,]\d+)?', cell)
+                    if not m:
+                        continue
+                    try:
+                        val = float(m.group(0).replace(',', '.').replace('+', ''))
+                    except Exception:
+                        continue
+                    if abs(val) >= 0.01:
+                        amount_str = m.group(0)
+                        amount_col_idx = i
+                        break
+
+            if not amount_str:
+                continue
+
+            balance_str = cells[balance_col] if 0 <= balance_col < len(cells) else ''
+            comment_str = cells[comment_col] if 0 <= comment_col < len(cells) else ''
+            if not comment_str:
+                # последняя длинная клетка — обычно примечание
+                for cell in reversed(cells):
+                    if cell and not date_re.search(cell) and not re.fullmatch(r'-?\+?\d+(?:[.,]\d+)?', cell.strip()):
+                        comment_str = cell
+                        break
+
+            if debug_count < 2:
+                print(f"[LK] parsed row cells={cells} -> date={date_str} amount={amount_str} comment={comment_str[:50]}")
+                debug_count += 1
+
             result.append({
-                'date': dm.group(0),
-                'amount': am.group(0).replace(',', '.'),
-                'comment': ' · '.join(comment_parts)[:300],
-                'balance_after': get('balance'),
+                'date': date_str,
+                'amount': amount_str.replace(',', '.').replace('+', ''),
+                'comment': (comment_str or '')[:300],
+                'balance_after': balance_str,
             })
         return result
 
