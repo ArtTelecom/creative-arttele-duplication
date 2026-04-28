@@ -36,7 +36,7 @@ export default function ContactsPage() {
       });
       const data = await res.json();
       if (data.ok) {
-        toast.success("Заявка отправлена! Свяжемся в течение 15 минут");
+        toast.success("Заявка принята! Специалист свяжется с вами в рабочее время");
         setName("");
         setPhone("");
         setMessage("");
@@ -138,12 +138,12 @@ export default function ContactsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-white/40 mb-1.5 block">Сообщение</label>
+                  <label className="text-xs text-white/40 mb-1.5 block">Комментарий</label>
                   <textarea
                     rows={4}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Опишите ваш вопрос..."
+                    placeholder="Удобное время для звонка, пожелания, детали..."
                     className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors resize-none"
                     style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
                   />

@@ -139,7 +139,7 @@ export default function VideoPackagesSection() {
 
           <div className="grid md:grid-cols-4 gap-6">
             {[
-              { step: "01", icon: "Phone", title: "Заявка", desc: "Звоните или оставляйте заявку — ответим за 15 минут" },
+              { step: "01", icon: "Phone", title: "Заявка", desc: "Звоните или оставляйте заявку — специалист свяжется в рабочее время" },
               { step: "02", icon: "MapPin", title: "Выезд", desc: "Бесплатный замер и консультация на объекте" },
               { step: "03", icon: "Wrench", title: "Монтаж", desc: "Устанавливаем аккуратно, без лишнего мусора" },
               { step: "04", icon: "Smartphone", title: "Сдача", desc: "Настраиваем, обучаем, выдаём гарантию" },

@@ -41,7 +41,7 @@ export default function LkAndFooter() {
         toast.error(data.error || "Не удалось отправить заявку");
         return;
       }
-      toast.success("Заявка отправлена! Мы свяжемся с вами в ближайшее время.");
+      toast.success("Заявка принята! Специалист свяжется с вами в рабочее время");
       setTicket({ name: "", phone: "", city: "", address: "", topic: "Подключение интернета", message: "" });
     } catch {
       toast.error("Ошибка сети, попробуйте ещё раз");
@@ -112,8 +112,8 @@ export default function LkAndFooter() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-white/40 mb-1.5 block">Сообщение</label>
-                  <textarea rows={3} value={ticket.message} onChange={(e) => setTicket({ ...ticket, message: e.target.value })} placeholder="Опишите ваш вопрос..." className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors resize-none" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} />
+                  <label className="text-xs text-white/40 mb-1.5 block">Комментарий</label>
+                  <textarea rows={3} value={ticket.message} onChange={(e) => setTicket({ ...ticket, message: e.target.value })} placeholder="Удобное время для звонка, пожелания, детали..." className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors resize-none" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} />
                 </div>
                 <button onClick={submitTicket} disabled={sending} className="w-full py-3.5 rounded-xl text-[#0b0e17] font-bold text-sm neon-glow-btn disabled:opacity-60 disabled:cursor-not-allowed" style={{ background: "linear-gradient(135deg, var(--neon-blue), var(--neon-green))" }}>
                   {sending ? "Отправка..." : "Отправить заявку"}

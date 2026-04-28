@@ -149,10 +149,10 @@ export default function AiChatPanel({
       });
       const data = await res.json();
       if (data.ok) {
-        toast.success("Заявка отправлена! Свяжемся в течение 15 минут");
+        toast.success("Заявка принята! Специалист скоро вас наберёт");
         const confirmText = data.reply
           ? data.reply
-          : `Спасибо, ${formName}! Заявка по теме «${formTopic}» принята. Менеджер свяжется с вами в течение 15 минут по номеру ${formPhone}.`;
+          : `Спасибо, ${formName}! Заявка по теме «${formTopic}» принята. Специалист свяжется с вами в рабочее время (пн–пт 9:00–20:00, сб–вс 10:00–18:00) по номеру ${formPhone}. Если оставили заявку вечером — позвоним утром в первую очередь.`;
         setMessages(prev => [
           ...prev,
           { role: "user", content: `📝 Оформил заявку: ${formTopic}${formCity ? `\nНас. пункт: ${formCity}` : ""}\nАдрес: ${formAddress}${formMessage ? `\n${formMessage}` : ""}` },
@@ -286,6 +286,17 @@ export default function AiChatPanel({
                 onChange={e => setFormAddress(e.target.value)}
                 placeholder="Улица, дом, квартира"
                 className="w-full rounded-lg px-3 py-2 bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-white/50 mb-1.5">Комментарий</label>
+              <textarea
+                value={formMessage}
+                onChange={e => setFormMessage(e.target.value)}
+                placeholder="Удобное время для звонка, пожелания, детали..."
+                rows={3}
+                className="w-full rounded-lg px-3 py-2 bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30 resize-none"
               />
             </div>
 
