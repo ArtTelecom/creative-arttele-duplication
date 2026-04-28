@@ -314,6 +314,156 @@ def pick_first(info, keys):
     return ''
 
 
+def lk_get_payments(lk_session, login):
+    """Парсит историю платежей из ЛК абонента (lk.arttele.ru), куда абонент входит сам.
+
+    Сессия lk_session уже залогинена под этим абонентом. Пробуем разные пути,
+    которые в типовых ЛК отвечают за финансовый отчёт.
+    """
+    import datetime as _dt
+    payments = []
+
+    today = _dt.date.today()
+    date1 = (today - _dt.timedelta(days=365 * 2)).strftime('%d.%m.%Y')
+    date2 = today.strftime('%d.%m.%Y')
+
+    base_urls = [
+        'http://lk.arttele.ru/finance.php',
+        'http://lk.arttele.ru/payments.php',
+        'http://lk.arttele.ru/oplaty.php',
+        'http://lk.arttele.ru/money.php',
+        'http://lk.arttele.ru/moneys.php',
+        'http://lk.arttele.ru/moneyslist.php',
+        'http://lk.arttele.ru/usrstat.php',
+        'http://lk.arttele.ru/index.php?menu=finance',
+        'http://lk.arttele.ru/index.php?menu=payments',
+        'http://lk.arttele.ru/index.php?option=finance',
+        'http://lk.arttele.ru/index.php?action=payments',
+        'http://lk.arttele.ru/?menu=finance',
+        'http://lk.arttele.ru/main.php?menu=finance',
+    ]
+
+    date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
+    amount_re = re.compile(r'^-?\+?\d+(?:[.,]\d+)?$')
+
+    def parse_money_table(table):
+        result = []
+        rows = table.find_all('tr')
+        if len(rows) < 2:
+            return result
+        header_cells = [c.get_text(' ', strip=True).lower() for c in rows[0].find_all(['th', 'td'])]
+        has_time = any('врем' in h or 'дата' in h for h in header_cells)
+        has_amount = any('сумма' in h for h in header_cells)
+        if not (has_time and has_amount):
+            return result
+
+        idx = {'time': -1, 'amount': -1, 'balance': -1, 'comment': -1, 'cashier': -1}
+        for i, h in enumerate(header_cells):
+            if idx['time'] < 0 and ('врем' in h or 'дата' in h):
+                idx['time'] = i
+            elif idx['amount'] < 0 and 'сумма' in h:
+                idx['amount'] = i
+            elif idx['balance'] < 0 and 'баланс' in h:
+                idx['balance'] = i
+            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h):
+                idx['comment'] = i
+            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h):
+                idx['cashier'] = i
+
+        for tr in rows[1:]:
+            cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
+            if len(cells) < 2:
+                continue
+            def get(key):
+                i = idx.get(key, -1)
+                return cells[i] if 0 <= i < len(cells) else ''
+            time_raw = get('time')
+            amount_raw = get('amount').replace(' ', '').replace('\xa0', '')
+            dm = date_re.search(time_raw)
+            am = amount_re.match(amount_raw) if amount_raw else None
+            if not dm or not am:
+                continue
+            comment_parts = []
+            c = get('comment')
+            if c:
+                comment_parts.append(c)
+            cashier = get('cashier')
+            if cashier:
+                comment_parts.append(cashier)
+            result.append({
+                'date': dm.group(0),
+                'amount': am.group(0).replace(',', '.'),
+                'comment': ' · '.join(comment_parts)[:300],
+                'balance_after': get('balance'),
+            })
+        return result
+
+    headers_req = {'User-Agent': 'Mozilla/5.0', 'Referer': 'http://lk.arttele.ru/'}
+
+    # Сначала пробуем GET, потом GET с диапазоном дат, потом POST с датами
+    for url in base_urls:
+        for method, params in [
+            ('GET', None),
+            ('GET', {'date1': date1, 'date2': date2, 'records': '99999'}),
+            ('POST', {'date1': date1, 'date2': date2, 'records': '99999'}),
+        ]:
+            try:
+                if method == 'POST':
+                    r = lk_session.post(url, data=params or {}, headers=headers_req, timeout=15)
+                else:
+                    full_url = url
+                    if params:
+                        sep = '&' if '?' in url else '?'
+                        full_url = url + sep + '&'.join(f'{k}={requests.utils.quote(v)}' for k, v in params.items())
+                    r = lk_session.get(full_url, headers=headers_req, timeout=15)
+                r.encoding = 'utf-8'
+                html = r.text or ''
+            except Exception as e:
+                print(f"[LK] payments {method} {url} error: {e}")
+                continue
+
+            print(f"[LK] payments {method} {url} status={r.status_code} len={len(html)}")
+            if len(html) < 500:
+                continue
+            if 'name="pass"' in html or 'name="login"' in html:
+                # выкинуло на форму логина
+                continue
+
+            soup = BeautifulSoup(html, 'html.parser')
+            for table in soup.find_all('table'):
+                payments.extend(parse_money_table(table))
+            if payments:
+                print(f"[LK] payments found via {method} {url} = {len(payments)}")
+                break
+        if payments:
+            break
+
+    seen = set()
+    uniq = []
+    for p in payments:
+        key = (p.get('date', ''), p.get('amount', ''), p.get('comment', '')[:40])
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+
+    def _sort_key(p):
+        m = re.match(r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?', p.get('date', ''))
+        if not m:
+            return (0,)
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        h = int(m.group(4) or 0)
+        mi = int(m.group(5) or 0)
+        s = int(m.group(6) or 0)
+        return (y, mo, d, h, mi, s)
+    uniq.sort(key=_sort_key, reverse=True)
+
+    print(f"[LK] payments count={len(uniq)} login={login}")
+    return uniq[:200]
+
+
 def kassa_get_payments(session, login, uid=''):
     """Берёт «Финансовый отчёт» абонента из MikroBill.
 
@@ -707,6 +857,17 @@ def handle_user_info(event, cors):
 
     info = kassa_get_user_info(session, login)
     user = build_user_data(login, found, info, session)
-    user['payments'] = kassa_get_payments(session, login, found.get('uid', ''))
+
+    # Сначала пробуем ЛК-сессию абонента (lk.arttele.ru) — там не нужен короткий UID
+    payments = []
+    try:
+        payments = lk_get_payments(lk_session, login)
+    except Exception as e:
+        print(f"[LK] payments error: {e}")
+
+    if not payments:
+        payments = kassa_get_payments(session, login, found.get('uid', ''))
+
+    user['payments'] = payments
 
     return {'statusCode': 200, 'headers': cors, 'body': json.dumps(user, ensure_ascii=False)}
