@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import PageBackground from "@/components/PageBackground";
 import AiChatPanel from "@/components/AiChatPanel";
+import NewsBlock from "@/components/dashboard/NewsBlock";
 import { toast } from "sonner";
 import funcUrls from "../../backend/func2url.json";
 
@@ -994,13 +995,109 @@ function TabTariff({ user, loading }: { user: UserData; loading: boolean }) {
   );
 }
 
-function TabStats({ traffic, loading }: { traffic: UserData["traffic"]; loading: boolean }) {
+function TabStats({
+  traffic,
+  payments,
+  loading,
+}: {
+  traffic: UserData["traffic"];
+  payments: UserData["payments"];
+  loading: boolean;
+}) {
   if (loading) return <LoadingSpinner />;
 
   const trafficList = traffic || [];
+  const paymentsList = payments || [];
+
+  const totalPaid = paymentsList.reduce((sum, p) => {
+    const n = parseFloat((p.amount || "0").replace(/\s/g, "").replace(",", "."));
+    return isFinite(n) && n > 0 ? sum + n : sum;
+  }, 0);
+
+  const lastPayment = paymentsList[0];
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <GlassCard className="p-6">
+        <h3 className="text-lg font-bold text-white font-montserrat mb-4 flex items-center gap-2">
+          <Icon name="Wallet" size={20} style={{ color: "var(--neon-green)" }} />
+          Статистика платежей
+        </h3>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div
+            className="rounded-xl p-4"
+            style={{
+              background: "rgba(0,245,122,0.06)",
+              border: "1px solid rgba(0,245,122,0.18)",
+            }}
+          >
+            <p className="text-white/45 text-xs uppercase tracking-wider mb-1.5">Всего платежей</p>
+            <p className="text-2xl font-bold text-white font-montserrat">
+              {paymentsList.length}
+            </p>
+          </div>
+          <div
+            className="rounded-xl p-4"
+            style={{
+              background: "rgba(0,212,255,0.06)",
+              border: "1px solid rgba(0,212,255,0.18)",
+            }}
+          >
+            <p className="text-white/45 text-xs uppercase tracking-wider mb-1.5">Сумма пополнений</p>
+            <p className="text-2xl font-bold font-montserrat" style={{ color: "var(--neon-blue)" }}>
+              {totalPaid > 0 ? `${totalPaid.toFixed(2)} ₽` : "—"}
+            </p>
+          </div>
+          <div
+            className="rounded-xl p-4"
+            style={{
+              background: "rgba(168,85,247,0.06)",
+              border: "1px solid rgba(168,85,247,0.18)",
+            }}
+          >
+            <p className="text-white/45 text-xs uppercase tracking-wider mb-1.5">Последний платёж</p>
+            <p className="text-2xl font-bold text-white font-montserrat">
+              {lastPayment?.amount ? `${lastPayment.amount} ₽` : "—"}
+            </p>
+            {lastPayment?.date && (
+              <p className="text-white/40 text-xs mt-0.5">{lastPayment.date}</p>
+            )}
+          </div>
+        </div>
+
+        {paymentsList.length === 0 ? (
+          <p className="text-white/40 text-sm">Нет данных о платежах</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                  <th className="text-left text-white/40 font-medium pb-3 pr-4">Дата</th>
+                  <th className="text-left text-white/40 font-medium pb-3 pr-4">Сумма</th>
+                  <th className="text-left text-white/40 font-medium pb-3">Комментарий</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paymentsList.map((row, i) => (
+                  <tr
+                    key={i}
+                    className="border-b last:border-b-0"
+                    style={{ borderColor: "rgba(255,255,255,0.04)" }}
+                  >
+                    <td className="py-3 pr-4 text-white/70">{row.date || "—"}</td>
+                    <td className="py-3 pr-4 font-semibold" style={{ color: "var(--neon-green)" }}>
+                      {row.amount ? `${row.amount} ₽` : "—"}
+                    </td>
+                    <td className="py-3 text-white/60">{row.comment || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </GlassCard>
+
       <GlassCard className="p-6">
         <h3 className="text-lg font-bold text-white font-montserrat mb-4 flex items-center gap-2">
           <Icon name="BarChart3" size={20} style={{ color: "var(--neon-blue)" }} />
@@ -1557,35 +1654,38 @@ export default function DashboardPage() {
           {activeTab === "main" && <TabMain user={user} loading={loading} onChangeTab={handleChangeTab} />}
           {activeTab === "balance" && <TabBalance user={user} payments={userData?.payments} loading={loading} />}
           {activeTab === "tariff" && <TabTariff user={user} loading={loading} />}
-          {activeTab === "stats" && <TabStats traffic={userData?.traffic} loading={loading} />}
+          {activeTab === "stats" && <TabStats traffic={userData?.traffic} payments={userData?.payments} loading={loading} />}
           {activeTab === "assistant" && (
-            <div
-              className="rounded-2xl overflow-hidden animate-fade-in"
-              style={{
-                background: "rgba(17, 24, 39, 0.6)",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
-                height: "calc(100vh - 220px)",
-                minHeight: "480px",
-              }}
-            >
-              <AiChatPanel
-                mode="dashboard"
-                context={{
-                  name: user.name,
-                  login: user.login,
-                  phone: user.phone,
-                  tariff: user.tariff,
-                  speed: user.speed,
-                  balance: user.balance,
-                  status: user.status,
-                  address: user.address,
-                  work_until: user.work_until,
+            <div className="space-y-6">
+              <div
+                className="rounded-2xl overflow-hidden animate-fade-in"
+                style={{
+                  background: "rgba(17, 24, 39, 0.6)",
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  height: "calc(100vh - 220px)",
+                  minHeight: "480px",
                 }}
-                greeting={`Здравствуйте, ${user.name || "абонент"}! На связи сотрудник АртТелеком Юг. Вижу ваш тариф «${user.tariff || "—"}», баланс ${user.balance || "—"} ₽. Задайте вопрос или нажмите «Оформить заявку», если нужен ремонт или другая помощь.`}
-                placeholder="Задайте вопрос сотруднику..."
-                accentColor="var(--neon-green)"
-                showTicketButton
-              />
+              >
+                <AiChatPanel
+                  mode="dashboard"
+                  context={{
+                    name: user.name,
+                    login: user.login,
+                    phone: user.phone,
+                    tariff: user.tariff,
+                    speed: user.speed,
+                    balance: user.balance,
+                    status: user.status,
+                    address: user.address,
+                    work_until: user.work_until,
+                  }}
+                  greeting={`Здравствуйте, ${user.name || "абонент"}! На связи сотрудник АртТелеком Юг. Вижу ваш тариф «${user.tariff || "—"}», баланс ${user.balance || "—"} ₽. Задайте вопрос или нажмите «Оформить заявку», если нужен ремонт или другая помощь.`}
+                  placeholder="Задайте вопрос сотруднику..."
+                  accentColor="var(--neon-green)"
+                  showTicketButton
+                />
+              </div>
+              <NewsBlock />
             </div>
           )}
           {activeTab === "settings" && <TabSettings user={user} />}
