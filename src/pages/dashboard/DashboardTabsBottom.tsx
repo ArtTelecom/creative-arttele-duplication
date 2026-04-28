@@ -10,6 +10,7 @@ import {
   computeBalanceForecast,
   getDaysWord,
 } from "./DashboardShared";
+import SpeedHistoryChart from "./SpeedHistoryChart";
 
 export function TabTariff({ user, loading }: { user: UserData; loading: boolean }) {
   if (loading) return <LoadingSpinner />;
@@ -183,10 +184,12 @@ export function TabStats({
   traffic,
   payments,
   loading,
+  login,
 }: {
   traffic: UserData["traffic"];
   payments: UserData["payments"];
   loading: boolean;
+  login?: string;
 }) {
   if (loading) return <LoadingSpinner />;
 
@@ -205,6 +208,7 @@ export function TabStats({
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {login && <SpeedHistoryChart login={login} />}
       <GlassCard className="p-6">
         <h3 className="text-lg font-bold text-white font-montserrat mb-4 flex items-center gap-2">
           <Icon name="Wallet" size={20} style={{ color: "var(--neon-green)" }} />

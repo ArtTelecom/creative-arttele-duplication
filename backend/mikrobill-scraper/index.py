@@ -31,6 +31,8 @@ def handler(event, context):
         return handle_user_info(event, cors)
     elif action == 'news':
         return handle_news(event, cors)
+    elif action == 'speed_history':
+        return handle_speed_history(event, cors)
     elif action == 'ping':
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'status': 'ok'})}
     else:
@@ -1129,4 +1131,116 @@ def handle_user_info(event, cors):
 
     user['payments'] = payments
 
+    # Сохраняем точку текущей скорости для истории
+    try:
+        save_speed_point(login, info.get('тек. скорость', ''))
+    except Exception as e:
+        print(f"[SPEED] save error: {e}")
+
     return {'statusCode': 200, 'headers': cors, 'body': json.dumps(user, ensure_ascii=False)}
+
+
+def _db_conn():
+    """Открывает соединение к Postgres. Использует SIMPLE QUERY protocol."""
+    import psycopg2
+    dsn = os.environ.get('DATABASE_URL')
+    if not dsn:
+        raise RuntimeError('DATABASE_URL not set')
+    return psycopg2.connect(dsn)
+
+
+def parse_speed_kbps(raw):
+    """Парсит '98 / 938 Кбит/с.' → (98, 938) в кбит/с.
+
+    Поддерживает Кбит/с и Мбит/с. Возвращает (in_kbps, out_kbps) либо None.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    s = raw.strip().lower().replace(',', '.')
+    m = re.search(r'(-?\d+(?:\.\d+)?)\s*/\s*(-?\d+(?:\.\d+)?)\s*(кбит|мбит|kbit|mbit)?', s)
+    if not m:
+        return None
+    try:
+        a = float(m.group(1))
+        b = float(m.group(2))
+    except Exception:
+        return None
+    unit = m.group(3) or 'кбит'
+    if unit.startswith('м') or unit.startswith('m'):
+        a *= 1000
+        b *= 1000
+    return int(round(a)), int(round(b))
+
+
+def save_speed_point(login, raw_speed):
+    """Сохраняет точку скорости в БД."""
+    if not login:
+        return
+    parsed = parse_speed_kbps(raw_speed)
+    if not parsed:
+        return
+    in_kbps, out_kbps = parsed
+    # Не пишем нули если оба нулевые (мусор)
+    if in_kbps == 0 and out_kbps == 0:
+        return
+    # Экранируем логин для simple query (только цифры/буквы)
+    safe_login = re.sub(r"[^\w\-+@.]", '', login)[:64]
+    if not safe_login:
+        return
+    conn = None
+    try:
+        conn = _db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            f"INSERT INTO speed_history (login, in_kbps, out_kbps) "
+            f"VALUES ('{safe_login}', {in_kbps}, {out_kbps})"
+        )
+        conn.commit()
+        cur.close()
+    finally:
+        if conn:
+            conn.close()
+
+
+def handle_speed_history(event, cors):
+    """История скорости абонента за последние 24 часа."""
+    params = event.get('queryStringParameters') or {}
+    login = (params.get('login', '') or '').strip()
+    hours = params.get('hours', '24')
+    try:
+        hours_int = max(1, min(168, int(hours)))
+    except Exception:
+        hours_int = 24
+    if not login:
+        return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'login required'})}
+
+    safe_login = re.sub(r"[^\w\-+@.]", '', login)[:64]
+    if not safe_login:
+        return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'invalid login'})}
+
+    points = []
+    conn = None
+    try:
+        conn = _db_conn()
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT ts, in_kbps, out_kbps FROM speed_history "
+            f"WHERE login = '{safe_login}' AND ts > NOW() - INTERVAL '{hours_int} hours' "
+            f"ORDER BY ts ASC"
+        )
+        for row in cur.fetchall():
+            ts, in_kbps, out_kbps = row
+            points.append({
+                'ts': ts.isoformat() if ts else '',
+                'in_kbps': int(in_kbps or 0),
+                'out_kbps': int(out_kbps or 0),
+            })
+        cur.close()
+    except Exception as e:
+        print(f"[SPEED] history error: {e}")
+        return {'statusCode': 500, 'headers': cors, 'body': json.dumps({'error': str(e)})}
+    finally:
+        if conn:
+            conn.close()
+
+    return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'points': points, 'hours': hours_int}, ensure_ascii=False)}

@@ -439,7 +439,7 @@ export default function DashboardPage() {
           {activeTab === "main" && <TabMain user={user} loading={loading} onChangeTab={handleChangeTab} />}
           {activeTab === "balance" && <TabBalance user={user} payments={userData?.payments} loading={loading} />}
           {activeTab === "tariff" && <TabTariff user={user} loading={loading} />}
-          {activeTab === "stats" && <TabStats traffic={userData?.traffic} payments={userData?.payments} loading={loading} />}
+          {activeTab === "stats" && <TabStats traffic={userData?.traffic} payments={userData?.payments} loading={loading} login={user.login} />}
           {activeTab === "assistant" && (
             <div className="space-y-6">
               <div
