@@ -841,6 +841,13 @@ def kassa_get_payments(session, login, uid=''):
 
         print(f"[MIKROBILL] payments {method} url={url} html_len={len(html)} marker={has_money_marker}")
 
+        # Ищем все ссылки/onclick содержащие money/finans/payment
+        money_links = re.findall(r'(?:href|src|onclick|action)\s*=\s*["\']([^"\']*(?:money|finans|payment|stat|report|history)[^"\']*)["\']', html, re.IGNORECASE)
+        print(f"[MIKROBILL] money_links={money_links[:10]}")
+        # Ищем JS вызовы типа open/load/show с строкой
+        js_calls = re.findall(r'(?:open|load|show|get)\s*\(\s*["\']([a-zA-Z][\w\.\-/]+\.php[^"\']*)["\']', html, re.IGNORECASE)
+        print(f"[MIKROBILL] js_calls={js_calls[:10]}")
+
         # Regex по сырому HTML (надёжнее BeautifulSoup)
         tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
         print(f"[MIKROBILL] kassa tr_blocks={len(tr_blocks)}")
