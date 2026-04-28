@@ -62,10 +62,19 @@ export default function DashboardPage() {
     fetchRef.current = fetchUserData;
     fetchUserData(true);
 
-    const intervalId = window.setInterval(() => fetchUserData(false), 15_000);
-    const onFocus = () => fetchUserData(false);
+    let lastFetch = Date.now();
+    const MIN_GAP_MS = 30_000;
+    const safeFetch = () => {
+      const now = Date.now();
+      if (now - lastFetch < MIN_GAP_MS) return;
+      lastFetch = now;
+      fetchUserData(false);
+    };
+
+    const intervalId = window.setInterval(safeFetch, 60_000);
+    const onFocus = () => safeFetch();
     const onVisibility = () => {
-      if (document.visibilityState === "visible") fetchUserData(false);
+      if (document.visibilityState === "visible") safeFetch();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
