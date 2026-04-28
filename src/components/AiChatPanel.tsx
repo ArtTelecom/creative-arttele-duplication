@@ -289,17 +289,6 @@ export default function AiChatPanel({
               />
             </div>
 
-            <div>
-              <label className="block text-xs text-white/50 mb-1.5">Описание проблемы</label>
-              <textarea
-                value={formMessage}
-                onChange={e => setFormMessage(e.target.value)}
-                placeholder="Опишите проблему или пожелание..."
-                rows={3}
-                className="w-full resize-none rounded-lg px-3 py-2 bg-white/5 border border-white/10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/30"
-              />
-            </div>
-
             <button
               onClick={submitTicket}
               disabled={sending}
