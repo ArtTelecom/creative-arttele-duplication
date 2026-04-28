@@ -315,118 +315,107 @@ def pick_first(info, keys):
 
 
 def kassa_get_payments(session, login, uid=''):
-    """Берёт историю платежей.
+    """Берёт «Финансовый отчёт» абонента из MikroBill.
 
-    MikroBill для платежей требует внутренний короткий UID (как в ссылке client=hVKeyxMZ),
-    обычные login/uid вернут страницу без таблицы платежей. Пробуем сначала найти этот
-    короткий ключ через api.php?action=getuid, затем дёргаем usrstat.php?client=...&option2=2.
-    Дополнительно пробуем стандартные API: GET_PAYMENTS / get_pays.
+    Финансовый отчёт лежит в блоке #moneyslist на usrstat.php?client=...&option2=2,
+    но появляется только при передаче дат через GET (date1, date2).
+    Колонки: Время | Логин | Сумма | Валюта | Баланс | Комментарий | Кассир.
     """
+    import datetime as _dt
     payments = []
 
-    # 1) Пробуем получить «короткий» client-key через различные API
-    def _try_get_short_uid(value):
-        for action in ('getuid', 'GET_UID', 'getclientid', 'GET_CLIENT_ID', 'finduid'):
-            try:
-                r = session.get(
-                    KASSA_URL + '/api.php?action=' + action + '&value=' + requests.utils.quote(value),
-                    timeout=10,
-                )
-                r.encoding = 'utf-8'
-                txt = (r.text or '').strip()
-                if txt and len(txt) < 30 and re.match(r'^[A-Za-z0-9_\-]{4,20}$', txt):
-                    print(f"[MIKROBILL] short_uid via {action}({value}) = {txt!r}")
-                    return txt
-            except Exception as e:
-                print(f"[MIKROBILL] {action} error: {e}")
-        return ''
+    # Период — последние 24 месяца, чтоб точно поймать всё
+    today = _dt.date.today()
+    date1 = (today - _dt.timedelta(days=365 * 2)).strftime('%d.%m.%Y')
+    date2 = today.strftime('%d.%m.%Y')
 
-    short_uid = ''
-    for v in (login, uid):
-        if v:
-            short_uid = _try_get_short_uid(v)
-            if short_uid:
-                break
-
-    # 2) Пробуем API платежей напрямую
-    for action in ('GET_PAYMENTS', 'getpayments', 'get_pays', 'GET_USER_PAYMENTS'):
-        for value in (login, uid):
-            if not value:
-                continue
-            try:
-                r = session.get(
-                    KASSA_URL + '/api.php?action=' + action + '&value=' + requests.utils.quote(value),
-                    timeout=10,
-                )
-                r.encoding = 'utf-8'
-                txt = (r.text or '').strip()
-                if not txt or '<html' in txt.lower()[:200]:
-                    continue
-                # Формат строк MikroBill — через || или табы. Разбираем универсально.
-                for line in txt.split('\n'):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    parts = re.split(r'\|\||\t|;', line)
-                    parts = [p.strip() for p in parts if p.strip()]
-                    if len(parts) < 2:
-                        continue
-                    date_part = next((p for p in parts if re.search(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}', p)), '')
-                    amount_part = ''
-                    for p in parts:
-                        if p == date_part:
-                            continue
-                        m = re.match(r'^-?\+?\d+(?:[.,]\d+)?$', p.replace(' ', ''))
-                        if m:
-                            amount_part = p.replace(' ', '').replace(',', '.')
-                            break
-                    if date_part and amount_part:
-                        date_match = re.search(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?', date_part)
-                        comment = ' · '.join(p for p in parts if p not in (date_part, amount_part))
-                        payments.append({
-                            'date': date_match.group(0) if date_match else date_part,
-                            'amount': amount_part,
-                            'comment': comment[:200],
-                        })
-                if payments:
-                    print(f"[MIKROBILL] payments via api {action}({value}) = {len(payments)}")
-                    break
-            except Exception as e:
-                print(f"[MIKROBILL] api {action} error: {e}")
-        if payments:
-            break
-
-    if payments:
-        seen = set()
-        uniq = []
-        for p in payments:
-            key = (p.get('date', ''), p.get('amount', ''))
-            if key in seen:
-                continue
-            seen.add(key)
-            uniq.append(p)
-        print(f"[MIKROBILL] payments count={len(uniq)} login={login} (api)")
-        return uniq[:100]
-
-    # 3) Если API ничего не дал — парсим usrstat.php по всем доступным client-ключам
+    # Кандидаты для параметра client — финотчёт работает через короткий UID (типа hVKeyxMZ),
+    # но и login/uid тоже пробуем на случай если редирект сработает
     candidates = []
-    if short_uid:
-        candidates.append(short_uid)
-    if uid and uid not in candidates:
-        candidates.append(uid)
-    if login and login not in candidates:
-        candidates.append(login)
+    for v in (uid, login):
+        if v and v not in candidates:
+            candidates.append(v)
 
+    base_params = (
+        '&option2=2&date1=' + requests.utils.quote(date1)
+        + '&date2=' + requests.utils.quote(date2)
+        + '&records=99999'
+    )
     urls = []
     for c in candidates:
+        urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c) + base_params)
         urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c) + '&option2=2')
-        urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c))
-        urls.append(KASSA_URL + '/payments.php?client=' + requests.utils.quote(c))
-        urls.append(KASSA_URL + '/oplaty.php?client=' + requests.utils.quote(c))
+
+    date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
+    amount_re = re.compile(r'^-?\+?\d+(?:[.,]\d+)?$')
+
+    def parse_money_table(table):
+        """Парсит таблицу финансового отчёта (Время|Логин|Сумма|Валюта|Баланс|Комментарий|Кассир)."""
+        result = []
+        rows = table.find_all('tr')
+        if len(rows) < 2:
+            return result
+        header_cells = [c.get_text(' ', strip=True).lower() for c in rows[0].find_all(['th', 'td'])]
+        # Должны быть знакомые колонки
+        has_time = any('врем' in h or 'дата' in h for h in header_cells)
+        has_amount = any('сумма' in h for h in header_cells)
+        if not (has_time and has_amount):
+            return result
+
+        idx = {'time': -1, 'login': -1, 'amount': -1, 'currency': -1,
+               'balance': -1, 'comment': -1, 'cashier': -1}
+        for i, h in enumerate(header_cells):
+            if idx['time'] < 0 and ('врем' in h or 'дата' in h):
+                idx['time'] = i
+            elif idx['login'] < 0 and ('логин' in h or 'login' in h):
+                idx['login'] = i
+            elif idx['amount'] < 0 and 'сумма' in h:
+                idx['amount'] = i
+            elif idx['currency'] < 0 and 'валют' in h:
+                idx['currency'] = i
+            elif idx['balance'] < 0 and 'баланс' in h:
+                idx['balance'] = i
+            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h):
+                idx['comment'] = i
+            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h):
+                idx['cashier'] = i
+
+        for tr in rows[1:]:
+            cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
+            if len(cells) < 3:
+                continue
+
+            def get(key):
+                i = idx.get(key, -1)
+                return cells[i] if 0 <= i < len(cells) else ''
+
+            time_raw = get('time')
+            amount_raw = get('amount').replace(' ', '').replace('\xa0', '')
+
+            dm = date_re.search(time_raw)
+            am = amount_re.match(amount_raw) if amount_raw else None
+            if not dm or not am:
+                continue
+
+            comment_parts = []
+            c = get('comment')
+            if c:
+                comment_parts.append(c)
+            cashier = get('cashier')
+            if cashier:
+                comment_parts.append(cashier)
+
+            result.append({
+                'date': dm.group(0),
+                'amount': am.group(0).replace(',', '.'),
+                'comment': ' · '.join(comment_parts)[:300],
+                'balance_after': get('balance'),
+            })
+        return result
 
     for url in urls:
         try:
-            r = session.get(url, timeout=15)
+            r = session.get(url, timeout=20)
             r.encoding = 'utf-8'
             html = r.text
         except Exception as e:
@@ -435,101 +424,48 @@ def kassa_get_payments(session, login, uid=''):
 
         print(f"[MIKROBILL] payments url={url} html_len={len(html)}")
         soup = BeautifulSoup(html, 'html.parser')
-        date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
-        amount_re = re.compile(r'(-?\+?\d+(?:[.,]\d+)?)')
 
-        all_tables = soup.find_all('table')
-        print(f"[MIKROBILL] payments tables_total={len(all_tables)}")
+        # 1) Сначала ищем блок #moneyslist (финансовый отчёт)
+        money_block = soup.find(id='moneyslist') or soup.select_one('.center2#moneyslist') or soup.select_one('.center2')
+        if money_block:
+            for table in money_block.find_all('table'):
+                payments.extend(parse_money_table(table))
 
-        for ti, table in enumerate(all_tables):
-            rows = table.find_all('tr')
-            if not rows:
-                continue
-            header_row = rows[0]
-            headers = [th.get_text(' ', strip=True).lower() for th in header_row.find_all(['th', 'td'])]
-            print(f"[MIKROBILL] payments table#{ti} rows={len(rows)} headers={headers}")
-            is_payments = any(
-                'дата' in h or 'сумма' in h or 'платёж' in h or 'платеж' in h or 'оплат' in h or 'попол' in h
-                for h in headers
-            )
-            if not is_payments:
-                continue
-
-            # Определяем индексы колонок
-            idx_date = idx_amount = idx_comment = idx_method = -1
-            for i, h in enumerate(headers):
-                if idx_date < 0 and 'дата' in h:
-                    idx_date = i
-                if idx_amount < 0 and ('сумма' in h or 'платёж' in h or 'платеж' in h or 'оплат' in h or 'попол' in h):
-                    idx_amount = i
-                if idx_comment < 0 and ('коммент' in h or 'примеч' in h or 'операц' in h or 'описан' in h):
-                    idx_comment = i
-                if idx_method < 0 and ('способ' in h or 'тип' in h or 'касса' in h or 'канал' in h):
-                    idx_method = i
-
-            for tr in rows[1:]:
-                cells = [td.get_text(' ', strip=True) for td in tr.find_all('td')]
-                if not cells or len(cells) < 2:
-                    continue
-                payment = {}
-
-                # По индексам
-                if 0 <= idx_date < len(cells):
-                    dm = date_re.search(cells[idx_date])
-                    if dm:
-                        payment['date'] = dm.group(0)
-                if 0 <= idx_amount < len(cells):
-                    am = amount_re.search(cells[idx_amount].replace(' ', ''))
-                    if am:
-                        payment['amount'] = am.group(1).replace(',', '.')
-                if 0 <= idx_comment < len(cells):
-                    payment['comment'] = cells[idx_comment]
-                if 0 <= idx_method < len(cells):
-                    method = cells[idx_method]
-                    if method:
-                        payment['comment'] = (payment.get('comment') or '')
-                        payment['comment'] = (payment['comment'] + ' · ' + method).strip(' ·') if payment['comment'] else method
-
-                # Fallback: если не размеченные колонки, ищем дату/сумму в любом столбце
-                if 'date' not in payment or 'amount' not in payment:
-                    for j, cell in enumerate(cells):
-                        if 'date' not in payment:
-                            dm = date_re.search(cell)
-                            if dm:
-                                payment['date'] = dm.group(0)
-                                continue
-                        if 'amount' not in payment and j > 0:
-                            am = amount_re.search(cell.replace(' ', ''))
-                            if am:
-                                val = am.group(1).replace(',', '.')
-                                # пропустим случайные числа типа "1" в первой колонке
-                                try:
-                                    if abs(float(val)) >= 1:
-                                        payment['amount'] = val
-                                except Exception:
-                                    pass
-
-                if payment.get('date') and payment.get('amount'):
-                    payments.append(payment)
-
-            if payments:
-                break  # таблица найдена — больше не обрабатываем
+        # 2) Если в блоке ничего — обходим все таблицы страницы
+        if not payments:
+            for table in soup.find_all('table'):
+                payments.extend(parse_money_table(table))
 
         if payments:
-            break  # с первого URL получили данные
+            print(f"[MIKROBILL] payments found via {url} = {len(payments)}")
+            break
 
     # Дедуп по дате+сумме
     seen = set()
     uniq = []
     for p in payments:
-        key = (p.get('date', ''), p.get('amount', ''))
+        key = (p.get('date', ''), p.get('amount', ''), p.get('comment', '')[:40])
         if key in seen:
             continue
         seen.add(key)
         uniq.append(p)
 
+    # Сортируем по дате (новые сверху)
+    def _sort_key(p):
+        m = re.match(r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?', p.get('date', ''))
+        if not m:
+            return (0,)
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if y < 100:
+            y += 2000
+        h = int(m.group(4) or 0)
+        mi = int(m.group(5) or 0)
+        s = int(m.group(6) or 0)
+        return (y, mo, d, h, mi, s)
+    uniq.sort(key=_sort_key, reverse=True)
+
     print(f"[MIKROBILL] payments count={len(uniq)} login={login}")
-    return uniq[:100]
+    return uniq[:200]
 
 
 def build_user_data(login, found, info, session=None):
