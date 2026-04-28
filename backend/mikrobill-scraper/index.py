@@ -327,14 +327,14 @@ def lk_get_payments(lk_session, login):
     date1 = (today - _dt.timedelta(days=365 * 2)).strftime('%d.%m.%Y')
     date2 = today.strftime('%d.%m.%Y')
 
-    # Рабочие пути в ЛК arttele (status=200, валидный HTML)
+    # Прямой URL финансовой страницы с историей платежей
     base_urls = [
+        'http://lk.arttele.ru/payments.php',
         'http://lk.arttele.ru/index.php?menu=payments',
-        'http://lk.arttele.ru/index.php?menu=finance',
     ]
 
     date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
-    amount_re = re.compile(r'^-?\+?\d+(?:[.,]\d+)?$')
+    amount_re_loose = re.compile(r'(-?\+?\d+(?:[.,]\d+)?)')
 
     def parse_money_table(table):
         result = []
@@ -355,9 +355,9 @@ def lk_get_payments(lk_session, login):
                 idx['amount'] = i
             elif idx['balance'] < 0 and 'баланс' in h:
                 idx['balance'] = i
-            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h):
+            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h or 'назнач' in h):
                 idx['comment'] = i
-            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h):
+            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h or 'плательщ' in h):
                 idx['cashier'] = i
 
         for tr in rows[1:]:
@@ -368,9 +368,9 @@ def lk_get_payments(lk_session, login):
                 i = idx.get(key, -1)
                 return cells[i] if 0 <= i < len(cells) else ''
             time_raw = get('time')
-            amount_raw = get('amount').replace(' ', '').replace('\xa0', '')
+            amount_raw = get('amount').replace('\xa0', ' ')
             dm = date_re.search(time_raw)
-            am = amount_re.match(amount_raw) if amount_raw else None
+            am = amount_re_loose.search(amount_raw) if amount_raw else None
             if not dm or not am:
                 continue
             comment_parts = []
@@ -390,12 +390,10 @@ def lk_get_payments(lk_session, login):
 
     headers_req = {'User-Agent': 'Mozilla/5.0', 'Referer': 'http://lk.arttele.ru/'}
 
-    # Сначала пробуем GET, потом GET с диапазоном дат, потом POST с датами
     for url in base_urls:
         for method, params in [
             ('GET', None),
             ('GET', {'date1': date1, 'date2': date2, 'records': '99999'}),
-            ('POST', {'date1': date1, 'date2': date2, 'records': '99999'}),
         ]:
             try:
                 if method == 'POST':
@@ -603,9 +601,9 @@ def kassa_get_payments(session, login, uid=''):
                 idx['currency'] = i
             elif idx['balance'] < 0 and 'баланс' in h:
                 idx['balance'] = i
-            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h):
+            elif idx['comment'] < 0 and ('коммент' in h or 'примеч' in h or 'описан' in h or 'назнач' in h):
                 idx['comment'] = i
-            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h):
+            elif idx['cashier'] < 0 and ('касс' in h or 'оператор' in h or 'плательщ' in h):
                 idx['cashier'] = i
 
         for tr in rows[1:]:
