@@ -845,8 +845,12 @@ def kassa_get_payments(session, login, uid=''):
         tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
         print(f"[MIKROBILL] kassa tr_blocks={len(tr_blocks)}")
         debug_dump = 0
+        sample_dumped = 0
         for tr_html in tr_blocks:
             cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
+            if sample_dumped < 3 and len(cell_html) >= 3:
+                sample_dumped += 1
+                print(f"[MIKROBILL] kassa sample tr (cells={len(cell_html)}): {tr_html[:600]!r}")
             if len(cell_html) < 3:
                 continue
 
