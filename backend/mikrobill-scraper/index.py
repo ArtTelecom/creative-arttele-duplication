@@ -327,12 +327,9 @@ def lk_get_payments(lk_session, login):
     date1 = (today - _dt.timedelta(days=365 * 2)).strftime('%d.%m.%Y')
     date2 = today.strftime('%d.%m.%Y')
 
-    # Прямой URL финансовой страницы с историей платежей.
-    # С параметрами диапазона дат — иначе ЛК отдаёт только текущий месяц.
+    # Только один URL — самый рабочий
     base_urls = [
         f'http://lk.arttele.ru/payments.php?date1={date1}&date2={date2}&records=99999',
-        'http://lk.arttele.ru/payments.php',
-        'http://lk.arttele.ru/index.php?menu=payments',
     ]
 
     date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
@@ -443,7 +440,6 @@ def lk_get_payments(lk_session, login):
     for url in base_urls:
         for method, params in [
             ('GET', None),
-            ('GET', {'date1': date1, 'date2': date2, 'records': '99999'}),
         ]:
             try:
                 if method == 'POST':
@@ -474,46 +470,8 @@ def lk_get_payments(lk_session, login):
             if 'name="pass"' in html or 'name="login"' in html:
                 continue
 
-            # Проверяем наличие iframe/ссылок на «настоящую» страницу с историей
-            iframe_match = re.search(r'<iframe[^>]+src=["\']([^"\']+)["\']', html, re.IGNORECASE)
-            link_targets = re.findall(r'(?:href|src|action)=["\']([^"\']*(?:money|payment|finance|stat|report)[^"\']*)["\']', html, re.IGNORECASE)
-            print(f"[LK] iframe={iframe_match.group(1) if iframe_match else None} links={link_targets[:8]}")
-
-            # Если есть iframe — грузим его
-            target_urls = []
-            if iframe_match:
-                iframe_src = iframe_match.group(1)
-                if iframe_src.startswith('http'):
-                    target_urls.append(iframe_src)
-                else:
-                    target_urls.append('http://lk.arttele.ru/' + iframe_src.lstrip('/'))
-            for lt in link_targets[:10]:
-                if lt.startswith('http'):
-                    base = lt
-                elif lt.startswith('/'):
-                    base = 'http://lk.arttele.ru' + lt
-                else:
-                    base = 'http://lk.arttele.ru/' + lt.lstrip('./')
-                # добавляем параметры диапазона дат
-                sep = '&' if '?' in base else '?'
-                target_urls.append(f'{base}{sep}date1={date1}&date2={date2}&records=99999')
-                target_urls.append(base)
-
-            # Если нашли потенциальные внутренние ссылки — загружаем их и парсим
+            # Прямой URL — sub-запросы не нужны
             extra_html_blobs = [html]
-            for tu in target_urls[:5]:
-                try:
-                    rr = lk_session.get(tu, headers=headers_req, timeout=10)
-                    if rr.apparent_encoding:
-                        rr.encoding = rr.apparent_encoding
-                    extra_html = rr.text or ''
-                    if len(extra_html) < 5000:
-                        extra_html = rr.content.decode('cp1251', errors='ignore')
-                    print(f"[LK] sub GET {tu} status={rr.status_code} len={len(extra_html)}")
-                    if len(extra_html) > 500:
-                        extra_html_blobs.append(extra_html)
-                except Exception as e:
-                    print(f"[LK] sub error {tu}: {e}")
 
             # Месяц словом → номер
             months_ru = {
@@ -1133,19 +1091,12 @@ def handle_user_info(event, cors):
     info = kassa_get_user_info(session, login)
     user = build_user_data(login, found, info, session)
 
-    # Kassa-источник (usrstat.php) актуальный — оттуда и баланс приходит
+    # Только ЛК-источник — kassa не отдаёт таблицу платежей
     payments = []
     try:
-        payments = kassa_get_payments(session, login, found.get('uid', ''))
+        payments = lk_get_payments(lk_session, login)
     except Exception as e:
-        print(f"[MIKROBILL] kassa payments error: {e}")
-
-    # Если касса ничего не дала — fallback на ЛК-сессию абонента
-    if not payments:
-        try:
-            payments = lk_get_payments(lk_session, login)
-        except Exception as e:
-            print(f"[LK] payments error: {e}")
+        print(f"[LK] payments error: {e}")
 
     user['payments'] = payments
 
