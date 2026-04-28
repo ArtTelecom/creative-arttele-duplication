@@ -314,13 +314,23 @@ def pick_first(info, keys):
     return ''
 
 
-def kassa_get_payments(session, login):
-    """Берёт историю платежей со страницы usrstat.php?client=...&option2=2 (раздел «Платежи»)."""
+def kassa_get_payments(session, login, uid=''):
+    """Берёт историю платежей со страницы usrstat.php?client=...&option2=2 (раздел «Платежи»).
+
+    В качестве client пробуем сначала UID (как в реальной ссылке MikroBill: client=hVKeyxMZ),
+    потом сам login (телефон/договор) — какой-то из них точно сработает.
+    """
     payments = []
-    urls = [
-        KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login) + '&option2=2',
-        KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login),
-    ]
+    candidates = []
+    if uid:
+        candidates.append(uid)
+    if login and login not in candidates:
+        candidates.append(login)
+
+    urls = []
+    for c in candidates:
+        urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c) + '&option2=2')
+        urls.append(KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(c))
 
     for url in urls:
         try:
@@ -331,16 +341,21 @@ def kassa_get_payments(session, login):
             print(f"[MIKROBILL] payments fetch error {url}: {e}")
             continue
 
+        print(f"[MIKROBILL] payments url={url} html_len={len(html)}")
         soup = BeautifulSoup(html, 'html.parser')
         date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
         amount_re = re.compile(r'(-?\+?\d+(?:[.,]\d+)?)')
 
-        for table in soup.find_all('table'):
+        all_tables = soup.find_all('table')
+        print(f"[MIKROBILL] payments tables_total={len(all_tables)}")
+
+        for ti, table in enumerate(all_tables):
             rows = table.find_all('tr')
             if not rows:
                 continue
             header_row = rows[0]
             headers = [th.get_text(' ', strip=True).lower() for th in header_row.find_all(['th', 'td'])]
+            print(f"[MIKROBILL] payments table#{ti} rows={len(rows)} headers={headers}")
             is_payments = any(
                 'дата' in h or 'сумма' in h or 'платёж' in h or 'платеж' in h or 'оплат' in h or 'попол' in h
                 for h in headers
@@ -583,6 +598,6 @@ def handle_user_info(event, cors):
 
     info = kassa_get_user_info(session, login)
     user = build_user_data(login, found, info, session)
-    user['payments'] = kassa_get_payments(session, login)
+    user['payments'] = kassa_get_payments(session, login, found.get('uid', ''))
 
     return {'statusCode': 200, 'headers': cors, 'body': json.dumps(user, ensure_ascii=False)}
