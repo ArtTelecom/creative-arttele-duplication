@@ -40,89 +40,69 @@ def handler(event, context):
 
 
 def handle_news(event, cors):
-    """Получает список объявлений (новостей) из MikroBill (allnews.php)."""
+    """Получает список объявлений (новостей) из MikroBill через api.php?action=GET_NEWS.
+
+    Формат ответа: записи разделены '*//*', поля внутри — '||'.
+    Колонки: 0=id, 1=timestamp(unix), 2=title, 3=text, 4=visible_flag, 5=views
+    """
+    import datetime as _dt
     params = event.get('queryStringParameters') or {}
     try:
         limit = int(params.get('limit', '0') or 0)
     except Exception:
         limit = 0
 
+    raw = ''
     try:
-        r = requests.get('https://lk.arttele.ru/kassa/allnews.php', timeout=15)
+        s = kassa_session()
+        r = s.get(KASSA_URL + '/api.php?action=GET_NEWS', timeout=15)
         r.encoding = 'utf-8'
-        html = r.text
+        raw = r.text or ''
+        print(f"[MIKROBILL] GET_NEWS len={len(raw)}")
     except Exception as e:
         print(f"[MIKROBILL] news fetch error: {e}")
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'news': []}, ensure_ascii=False)}
 
-    soup = BeautifulSoup(html, 'html.parser')
     news = []
+    # Если касса вернула логин-форму вместо данных
+    if 'chaiserlogin' in raw or 'chaiserpassword' in raw:
+        print("[MIKROBILL] news: kassa session not authorized")
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'news': []}, ensure_ascii=False)}
 
-    # Стратегия 1: ищем блоки с датами (типичный шаблон MikroBill)
-    date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}')
-
-    # Пробуем найти таблицу
-    for table in soup.find_all('table'):
-        rows = table.find_all('tr')
-        if len(rows) < 1:
+    items = [chunk for chunk in raw.split('*//*') if chunk and '||' in chunk]
+    for chunk in items:
+        cols = chunk.split('||')
+        if len(cols) < 6:
             continue
-        for tr in rows:
-            cells = tr.find_all(['td', 'th'])
-            if not cells:
-                continue
-            full_text = tr.get_text('\n', strip=True)
-            if not full_text or len(full_text) < 10:
-                continue
-            date_match = date_re.search(full_text)
-            if not date_match:
-                continue
-            date = date_match.group(0)
-            # title = первая строка (без даты), text = остальное
-            lines = [ln.strip() for ln in full_text.split('\n') if ln.strip()]
-            title = ''
-            text_parts = []
-            for ln in lines:
-                if date_re.search(ln) and not title:
-                    cleaned = date_re.sub('', ln).strip(' -:.,')
-                    if cleaned:
-                        title = cleaned
-                    continue
-                if not title:
-                    title = ln
-                else:
-                    text_parts.append(ln)
-            text = '\n'.join(text_parts).strip()
-            if title or text:
-                news.append({'date': date, 'title': title or 'Объявление', 'text': text})
+        try:
+            ts = int(cols[1])
+        except Exception:
+            ts = 0
+        title = (cols[2] or '').strip()
+        text = (cols[3] or '').strip()
+        visible = (cols[4] or '').strip()
+        if visible == '0':
+            continue
+        if not title and not text:
+            continue
+        if ts > 0:
+            try:
+                date = _dt.datetime.fromtimestamp(ts).strftime('%d.%m.%Y')
+            except Exception:
+                date = ''
+        else:
+            date = ''
+        # Декодируем спец-символы и переводы строк
+        text = text.replace('\\r\\n', '\n').replace('\\n', '\n').replace('\r\n', '\n')
+        text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+        text = re.sub(r'<[^>]+>', '', text).strip()
+        title = re.sub(r'<[^>]+>', '', title).strip()
+        news.append({'date': date, 'title': title or 'Объявление', 'text': text, 'ts': ts})
 
-    # Стратегия 2: если не нашли в таблицах — ищем по абзацам/div
-    if not news:
-        for block in soup.find_all(['div', 'p', 'article']):
-            full_text = block.get_text('\n', strip=True)
-            if not full_text or len(full_text) < 20:
-                continue
-            date_match = date_re.search(full_text)
-            if not date_match:
-                continue
-            # пропускаем вложенные
-            if block.find(['div', 'p', 'article']):
-                continue
-            date = date_match.group(0)
-            lines = [ln.strip() for ln in full_text.split('\n') if ln.strip()]
-            title = lines[0] if lines else 'Объявление'
-            text = '\n'.join(lines[1:]).strip()
-            news.append({'date': date, 'title': title, 'text': text})
-
-    # Дедуп
-    seen = set()
-    uniq = []
+    # Сортируем по времени, свежие первыми
+    news.sort(key=lambda x: x.get('ts', 0), reverse=True)
     for n in news:
-        key = (n['date'], n['title'][:60])
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(n)
-    news = uniq
+        n.pop('ts', None)
 
     if limit > 0:
         news = news[:limit]
