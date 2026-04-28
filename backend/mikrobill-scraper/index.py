@@ -183,40 +183,43 @@ def _parse_kv_from_html(html):
 def kassa_get_user_info(session, login):
     """Забирает карточку абонента из MikroBill.
 
-    Сначала пробуем value2=0 (полная расширенная карточка со сроком действия услуги),
-    потом value2=1 как резерв. Результаты объединяем.
+    Тянем value2=0/1/2 + usrstat.php ПАРАЛЛЕЛЬНО (4 потока),
+    чтобы не ждать суммы 4×10s, а уложиться в ~10s максимум.
+    Результаты объединяем в порядке приоритета: 0 → 1 → 2 → usrstat.
     """
-    merged = {}
+    from concurrent.futures import ThreadPoolExecutor
 
-    for value2 in ('0', '1', '2'):
+    quoted = requests.utils.quote(login)
+    tasks = [
+        ('0', KASSA_URL + '/api.php?action=GET_USER_INFO&value=' + quoted + '&value2=0'),
+        ('1', KASSA_URL + '/api.php?action=GET_USER_INFO&value=' + quoted + '&value2=1'),
+        ('2', KASSA_URL + '/api.php?action=GET_USER_INFO&value=' + quoted + '&value2=2'),
+        ('usrstat', KASSA_URL + '/usrstat.php?client=' + quoted),
+    ]
+
+    def fetch(item):
+        tag, url = item
         try:
-            r = session.get(
-                KASSA_URL + '/api.php?action=GET_USER_INFO&value=' + requests.utils.quote(login) + '&value2=' + value2,
-                timeout=10,
-            )
+            r = session.get(url, timeout=10)
             r.encoding = 'utf-8'
-            data = _parse_kv_from_html(r.text)
-            for k, v in data.items():
-                if k not in merged or not merged.get(k):
-                    merged[k] = v
-            print(f"[MIKROBILL] user={login} value2={value2} keys={list(data.keys())}")
+            return tag, _parse_kv_from_html(r.text), None
         except Exception as e:
-            print(f"[MIKROBILL] GET_USER_INFO value2={value2} error: {e}")
+            return tag, {}, str(e)
 
-    # Дополнительно — usrstat.php, там часто есть «Хватит до» / «Оплачено по»
-    try:
-        r = session.get(
-            KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login),
-            timeout=10,
-        )
-        r.encoding = 'utf-8'
-        stat_data = _parse_kv_from_html(r.text)
-        for k, v in stat_data.items():
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for tag, data, err in pool.map(fetch, tasks):
+            if err:
+                print(f"[MIKROBILL] {tag} error: {err}")
+            else:
+                print(f"[MIKROBILL] user={login} {tag} keys={list(data.keys())}")
+            results[tag] = data
+
+    merged = {}
+    for tag in ('0', '1', '2', 'usrstat'):
+        for k, v in results.get(tag, {}).items():
             if k not in merged or not merged.get(k):
                 merged[k] = v
-        print(f"[MIKROBILL] usrstat keys={list(stat_data.keys())}")
-    except Exception as e:
-        print(f"[MIKROBILL] usrstat error: {e}")
 
     print(f"[MIKROBILL] user={login} merged_keys={list(merged.keys())}")
     for k, v in merged.items():
