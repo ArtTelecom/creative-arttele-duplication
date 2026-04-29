@@ -435,16 +435,28 @@ def lk_get_payments(lk_session, login):
                         sep = '&' if '?' in url else '?'
                         full_url = url + sep + '&'.join(f'{k}={requests.utils.quote(v)}' for k, v in params.items())
                     r = lk_session.get(full_url, headers=headers_req, timeout=15)
-                # Пробуем сначала apparent_encoding (cp1251), потом utf-8
-                if r.apparent_encoding:
-                    r.encoding = r.apparent_encoding
-                html = r.text or ''
-                if len(html) < 5000:
-                    # вдруг не угадал — пробуем cp1251
-                    try:
-                        html = r.content.decode('cp1251', errors='ignore')
-                    except Exception:
-                        pass
+                # Декодируем умно: если в utf8-варианте кириллица «битая» (mojibake),
+                # принудительно используем cp1251 (lk.arttele.ru часто отдаёт cp1251)
+                content = r.content or b''
+                html_utf = ''
+                html_cp = ''
+                try:
+                    html_utf = content.decode('utf-8', errors='strict')
+                except Exception:
+                    html_utf = content.decode('utf-8', errors='ignore')
+                try:
+                    html_cp = content.decode('cp1251', errors='ignore')
+                except Exception:
+                    html_cp = ''
+                # Признак mojibake — много латиницы 'Р' рядом с цифрами/символами кириллицы
+                mojibake = sum(1 for ch in html_utf if ch in 'РђСЂСѓРѕРµРёРЅРєР»РјРЅРѕ')
+                if mojibake > 20 and html_cp:
+                    html = html_cp
+                    r.encoding = 'cp1251'
+                else:
+                    html = html_utf or html_cp
+                    if r.apparent_encoding:
+                        r.encoding = r.apparent_encoding
             except Exception as e:
                 print(f"[LK] payments {method} {url} error: {e}")
                 continue
@@ -496,9 +508,6 @@ def lk_get_payments(lk_session, login):
             for blob in extra_html_blobs:
                 tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', blob, re.IGNORECASE | re.DOTALL)
                 print(f"[LK] regex tr_blocks={len(tr_blocks)}")
-                if len(tr_blocks) <= 10:
-                    for _i, _tr in enumerate(tr_blocks[:6]):
-                        print(f"[LK] dbg tr#{_i}: {_tr[:400]!r}")
                 for tr_idx, tr_html in enumerate(tr_blocks):
                     cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
                     if len(cell_html) < 4:
