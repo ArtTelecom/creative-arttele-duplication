@@ -79,6 +79,10 @@ def handler(event, context):
         return handle_auth(event, cors)
     elif action == 'user_info':
         return handle_user_info(event, cors)
+    elif action == 'payments':
+        return handle_payments(event, cors)
+    elif action == 'traffic':
+        return handle_traffic(event, cors)
     elif action == 'news':
         return handle_news(event, cors)
     elif action == 'speed_history':
@@ -1572,42 +1576,9 @@ def handle_user_info(event, cors):
     except Exception as e:
         print(f"[LK] index check error: {e}")
 
-    # LK даёт самые подробные платежи. Если сессия LK подтверждена — берём оттуда.
-    # Если LK не привязал сессию (бывает у части абонентов) — идём в kassa/daystat
-    # через kassa_session, которая для этого абонента точно рабочая.
-    payments = []
-    if session_owner_ok:
-        try:
-            payments = lk_get_payments(lk_session, login)
-        except Exception as e:
-            print(f"[LK] payments error: {e}")
-    else:
-        print(f"[LK] session not verified — using kassa-only fallbacks for login={login}")
-
-    # Фолбек 1: kassa usrstat
-    if not payments:
-        try:
-            kassa_uid = (found or {}).get('uid', '') if isinstance(found, dict) else ''
-            payments = kassa_get_payments(session, login, kassa_uid)
-            print(f"[KASSA] fallback payments count={len(payments)} login={login}")
-        except Exception as e:
-            print(f"[KASSA] fallback payments error: {e}")
-    # Фолбек 2: помесячный обход daystat.php
-    if not payments:
-        try:
-            payments = kassa_get_daystat_payments(session, login)
-            print(f"[DAYSTAT] fallback payments count={len(payments)} login={login}")
-        except Exception as e:
-            print(f"[DAYSTAT] fallback error: {e}")
-
-    user['payments'] = payments
-
-    # Собираем сводку по трафику (день / месяц / 6 мес / 12 мес / всё время)
-    try:
-        user['traffic_summary'] = kassa_get_traffic_summary(session, login, info)
-    except Exception as e:
-        print(f"[TRAFFIC] summary error: {e}")
-        user['traffic_summary'] = None
+    # ⚡ Базовый ответ — БЕЗ тяжёлых платежей/трафика.
+    # Платежи и трафик грузятся отдельными запросами `?action=payments` и `?action=traffic`.
+    user['session_owner_ok'] = session_owner_ok
 
     # Сохраняем точку текущей скорости для истории
     try:
@@ -1616,6 +1587,129 @@ def handle_user_info(event, cors):
         print(f"[SPEED] save error: {e}")
 
     return {'statusCode': 200, 'headers': cors, 'body': json.dumps(user, ensure_ascii=False)}
+
+
+def _verify_lk_session(lk_session, login, candidates):
+    """Проверяет, что LK-сессия принадлежит абоненту (в index.php есть его данные)."""
+    try:
+        idx = lk_session.get('http://lk.arttele.ru/index.php', timeout=10)
+        idx_html = smart_text(idx)
+        for c in candidates:
+            if c and c in idx_html:
+                print(f"[LK] session owner verified by '{c}'")
+                return True
+        print(f"[LK] session owner mismatch: none of {candidates} found in index.php")
+    except Exception as e:
+        print(f"[LK] index check error: {e}")
+    return False
+
+
+def _login_to_lk_and_kassa(login, password):
+    """Авторизуется в LK + kassa, возвращает (lk_session, kassa_sess, found, info, session_owner_ok)
+    либо (None, None, None, None, False) если auth failed.
+    """
+    lk_session = requests.Session()
+    lk_resp = lk_session.post(
+        'http://lk.arttele.ru/login.php',
+        data={'login': login, 'pass': password, 'go': ''},
+        allow_redirects=False,
+        timeout=15,
+    )
+    if lk_resp.status_code in (301, 302):
+        redirect_url = lk_resp.headers.get('Location', '')
+        lk_resp = lk_session.post(
+            redirect_url,
+            data={'login': login, 'pass': password, 'go': ''},
+            timeout=15,
+        )
+    if 'name="pass"' in smart_text(lk_resp):
+        return None, None, None, None, False
+
+    sess = kassa_session()
+    found = kassa_find_user(sess, login)
+    if not found:
+        return None, None, None, None, False
+    info = kassa_get_user_info(sess, login)
+
+    # Проверка владельца LK-сессии
+    candidates = []
+    for v in [info.get('договор', ''), login, info.get('телефон', ''), info.get('фио', '')]:
+        if v and isinstance(v, str):
+            v_clean = v.strip()
+            if len(v_clean) >= 4:
+                candidates.append(v_clean)
+    session_owner_ok = _verify_lk_session(lk_session, login, candidates)
+
+    return lk_session, sess, found, info, session_owner_ok
+
+
+def handle_payments(event, cors):
+    """Загружает только историю платежей абонента (быстрее чем full user_info)."""
+    params = event.get('queryStringParameters') or {}
+    login = params.get('login', '').strip()
+    password = params.get('password', '').strip()
+
+    if not login or not password:
+        return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'Missing credentials'})}
+
+    lk_session, sess, found, _info, session_owner_ok = _login_to_lk_and_kassa(login, password)
+    if sess is None:
+        return {'statusCode': 401, 'headers': cors, 'body': json.dumps({'error': 'Auth failed'})}
+
+    payments = []
+    if session_owner_ok:
+        try:
+            payments = lk_get_payments(lk_session, login)
+        except Exception as e:
+            print(f"[LK] payments error: {e}")
+    else:
+        print(f"[LK] session not verified — kassa-only for login={login}")
+
+    if not payments:
+        try:
+            kassa_uid = (found or {}).get('uid', '') if isinstance(found, dict) else ''
+            payments = kassa_get_payments(sess, login, kassa_uid)
+            print(f"[KASSA] fallback payments count={len(payments)} login={login}")
+        except Exception as e:
+            print(f"[KASSA] fallback payments error: {e}")
+    if not payments:
+        try:
+            payments = kassa_get_daystat_payments(sess, login)
+            print(f"[DAYSTAT] fallback payments count={len(payments)} login={login}")
+        except Exception as e:
+            print(f"[DAYSTAT] fallback error: {e}")
+
+    return {
+        'statusCode': 200,
+        'headers': cors,
+        'body': json.dumps({'payments': payments}, ensure_ascii=False),
+    }
+
+
+def handle_traffic(event, cors):
+    """Загружает сводку по трафику (день / месяц / 6 мес / 12 мес / всё время)."""
+    params = event.get('queryStringParameters') or {}
+    login = params.get('login', '').strip()
+    password = params.get('password', '').strip()
+
+    if not login or not password:
+        return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'Missing credentials'})}
+
+    _lk, sess, _found, info, _ok = _login_to_lk_and_kassa(login, password)
+    if sess is None:
+        return {'statusCode': 401, 'headers': cors, 'body': json.dumps({'error': 'Auth failed'})}
+
+    summary = None
+    try:
+        summary = kassa_get_traffic_summary(sess, login, info)
+    except Exception as e:
+        print(f"[TRAFFIC] summary error: {e}")
+
+    return {
+        'statusCode': 200,
+        'headers': cors,
+        'body': json.dumps({'traffic_summary': summary}, ensure_ascii=False),
+    }
 
 
 def _db_conn():

@@ -53,16 +53,27 @@ export default function DashboardPage() {
 
     const fetchUserData = (initial: boolean) => {
       const ts = Date.now();
-      fetch(`${url}?action=user_info&login=${encodeURIComponent(creds.login)}&password=${encodeURIComponent(creds.password)}&_=${ts}`, { cache: "no-store" })
+      const auth = `login=${encodeURIComponent(creds.login)}&password=${encodeURIComponent(creds.password)}`;
+
+      // 1) Базовая инфа (быстро) — показываем сразу
+      fetch(`${url}?action=user_info&${auth}&_=${ts}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return;
-          setUserData(data);
-          try {
-            localStorage.setItem("lk_user", JSON.stringify(data));
-          } catch {
-            /* ignore */
-          }
+          setUserData((prev) => {
+            // Сохраняем уже подгруженные платежи/трафик при обновлении базы
+            const merged = {
+              ...data,
+              payments: data?.payments || prev?.payments,
+              traffic_summary: data?.traffic_summary ?? prev?.traffic_summary,
+            };
+            try {
+              localStorage.setItem("lk_user", JSON.stringify(merged));
+            } catch {
+              /* ignore */
+            }
+            return merged;
+          });
           if (initial) setLoading(false);
           setRefreshing(false);
         })
@@ -70,6 +81,40 @@ export default function DashboardPage() {
           if (initial && !cancelled) setLoading(false);
           setRefreshing(false);
         });
+
+      // 2) Платежи (параллельно)
+      fetch(`${url}?action=payments&${auth}&_=${ts}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled || !data?.payments) return;
+          setUserData((prev) => {
+            const merged = { ...(prev || {}), payments: data.payments };
+            try {
+              localStorage.setItem("lk_user", JSON.stringify(merged));
+            } catch {
+              /* ignore */
+            }
+            return merged as UserData;
+          });
+        })
+        .catch(() => undefined);
+
+      // 3) Трафик (параллельно — самый медленный запрос)
+      fetch(`${url}?action=traffic&${auth}&_=${ts}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled || !data?.traffic_summary) return;
+          setUserData((prev) => {
+            const merged = { ...(prev || {}), traffic_summary: data.traffic_summary };
+            try {
+              localStorage.setItem("lk_user", JSON.stringify(merged));
+            } catch {
+              /* ignore */
+            }
+            return merged as UserData;
+          });
+        })
+        .catch(() => undefined);
     };
 
     fetchRef.current = fetchUserData;
