@@ -508,17 +508,25 @@ def lk_get_payments(lk_session, login):
             for blob in extra_html_blobs:
                 tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', blob, re.IGNORECASE | re.DOTALL)
                 print(f"[LK] regex tr_blocks={len(tr_blocks)}")
+                _dbg_count = 0
                 for tr_idx, tr_html in enumerate(tr_blocks):
                     cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
-                    if len(cell_html) < 4:
+                    if _dbg_count < 4 and len(cell_html) >= 3:
+                        _preview_cells = []
+                        for _c in cell_html[:8]:
+                            _t = re.sub(r'<[^>]+>', ' ', _c)
+                            _t = re.sub(r'\s+', ' ', _t).strip()
+                            _preview_cells.append(_t[:60])
+                        print(f"[LK] dbg row#{tr_idx} cells={len(cell_html)}: {_preview_cells}")
+                        _dbg_count += 1
+                    if len(cell_html) < 3:
                         continue
-                    # Извлекаем тип операции из иконки (fa-plus-circle = пополнение, fa-envelope-open = начисление и т.д.)
-                    icon_html = cell_html[1] if len(cell_html) > 1 else ''
-                    icon_match = re.search(r'fa-([a-z\-]+)', icon_html, re.IGNORECASE)
-                    op_type = icon_match.group(1) if icon_match else ''
 
+                    # Текстовые версии ячеек + raw HTML (для иконок)
                     cells = []
+                    raws = []
                     for c in cell_html:
+                        raws.append(c)
                         text = re.sub(r'<[^>]+>', ' ', c)
                         text = (text.replace('&nbsp;', ' ').replace('&amp;', '&')
                                     .replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
@@ -526,30 +534,80 @@ def lk_get_payments(lk_session, login):
                         text = re.sub(r'\s+', ' ', text).strip()
                         cells.append(text)
 
-                    # Жёсткая структура: [дата, иконка, сумма, баланс, примечание]
-                    date_str = parse_lk_date(cells[0])
+                    # Ищем колонку с датой
+                    date_str = ''
+                    date_idx = -1
+                    for i, cell in enumerate(cells):
+                        d = parse_lk_date(cell)
+                        if d:
+                            date_str = d
+                            date_idx = i
+                            break
                     if not date_str:
                         continue
 
-                    amount_match = re.search(r'-?\d+(?:[.,]\d+)?', cells[2])
-                    if not amount_match:
-                        continue
-                    try:
-                        amount_val = float(amount_match.group(0).replace(',', '.'))
-                    except Exception:
-                        continue
-                    if abs(amount_val) < 0.01:
-                        # Пропускаем нулевые "начисления"
+                    # Ищем тип операции по иконке (fa-plus-circle / fa-minus-circle / fa-envelope-open)
+                    op_type = ''
+                    for raw in raws:
+                        m = re.search(r'fa-(plus[a-z\-]*|minus[a-z\-]*|envelope[a-z\-]*|arrow-(?:up|down)[a-z\-]*|wallet|money[a-z\-]*)', raw, re.IGNORECASE)
+                        if m:
+                            op_type = m.group(1).lower()
+                            break
+
+                    # Ищем сумму — первая числовая ячейка после даты
+                    amount_val = None
+                    amount_idx = -1
+                    for i in range(date_idx + 1, len(cells)):
+                        cell = cells[i]
+                        # отбрасываем явный «баланс: ...» если он стоит как label, но числа тоже подходят
+                        m = re.search(r'(-?\+?\d+(?:[.,]\d{1,2})?)', cell)
+                        if not m:
+                            continue
+                        try:
+                            v = float(m.group(1).replace(',', '.'))
+                        except Exception:
+                            continue
+                        if abs(v) < 0.01:
+                            continue
+                        # Пропускаем ячейки, где число — это явно баланс (в LK обычно есть data-html="Баланс")
+                        amount_val = v
+                        amount_idx = i
+                        break
+                    if amount_val is None:
                         continue
 
-                    balance_match = re.search(r'-?\d+(?:[.,]\d+)?', cells[3]) if len(cells) > 3 else None
-                    balance_str = balance_match.group(0).replace(',', '.') if balance_match else ''
+                    # Баланс — следующая числовая ячейка после суммы
+                    balance_str = ''
+                    for i in range(amount_idx + 1, len(cells)):
+                        m = re.search(r'(-?\+?\d+(?:[.,]\d{1,2})?)', cells[i])
+                        if m:
+                            try:
+                                balance_str = f"{float(m.group(1).replace(',', '.')):.2f}"
+                                break
+                            except Exception:
+                                pass
 
-                    comment_str = cells[4] if len(cells) > 4 else ''
+                    # Комментарий — последняя текстовая ячейка без числа в одиночестве
+                    comment_str = ''
+                    for i in range(len(cells) - 1, max(amount_idx, date_idx), -1):
+                        cell = cells[i]
+                        if not cell:
+                            continue
+                        # пропускаем чисто числовые/денежные ячейки
+                        if re.fullmatch(r'\s*-?\+?\d+(?:[.,]\d{1,2})?\s*(?:руб\.?)?\s*', cell, re.IGNORECASE):
+                            continue
+                        if 'баланс' in cell.lower() and len(cell) < 30:
+                            continue
+                        if len(cell) >= 2:
+                            comment_str = cell
+                            break
 
-                    # Тип операции: пополнение vs начисление
                     is_payment = 'plus' in op_type or 'arrow-up' in op_type or 'wallet' in op_type or 'money' in op_type
                     is_charge = 'envelope' in op_type or 'minus' in op_type or 'arrow-down' in op_type
+                    # Если иконки нет — определяем по знаку суммы
+                    if not is_payment and not is_charge:
+                        is_payment = amount_val > 0
+                        is_charge = amount_val < 0
 
                     payments.append({
                         'date': date_str,
