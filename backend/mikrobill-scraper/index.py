@@ -1572,30 +1572,33 @@ def handle_user_info(event, cors):
     except Exception as e:
         print(f"[LK] index check error: {e}")
 
-    # Платежи берём ТОЛЬКО если уверены, что сессия принадлежит этому абоненту
+    # LK даёт самые подробные платежи. Если сессия LK подтверждена — берём оттуда.
+    # Если LK не привязал сессию (бывает у части абонентов) — идём в kassa/daystat
+    # через kassa_session, которая для этого абонента точно рабочая.
     payments = []
     if session_owner_ok:
         try:
             payments = lk_get_payments(lk_session, login)
         except Exception as e:
             print(f"[LK] payments error: {e}")
-        # Фолбек 1: если LK ничего не вернул — пробуем кассу через kassa-сессию
-        if not payments:
-            try:
-                kassa_uid = (found or {}).get('uid', '') if isinstance(found, dict) else ''
-                payments = kassa_get_payments(session, login, kassa_uid)
-                print(f"[KASSA] fallback payments count={len(payments)} login={login}")
-            except Exception as e:
-                print(f"[KASSA] fallback payments error: {e}")
-        # Фолбек 2: помесячный обход daystat.php
-        if not payments:
-            try:
-                payments = kassa_get_daystat_payments(session, login)
-                print(f"[DAYSTAT] fallback payments count={len(payments)} login={login}")
-            except Exception as e:
-                print(f"[DAYSTAT] fallback error: {e}")
     else:
-        print(f"[LK] skip payments — session not verified for login={login}")
+        print(f"[LK] session not verified — using kassa-only fallbacks for login={login}")
+
+    # Фолбек 1: kassa usrstat
+    if not payments:
+        try:
+            kassa_uid = (found or {}).get('uid', '') if isinstance(found, dict) else ''
+            payments = kassa_get_payments(session, login, kassa_uid)
+            print(f"[KASSA] fallback payments count={len(payments)} login={login}")
+        except Exception as e:
+            print(f"[KASSA] fallback payments error: {e}")
+    # Фолбек 2: помесячный обход daystat.php
+    if not payments:
+        try:
+            payments = kassa_get_daystat_payments(session, login)
+            print(f"[DAYSTAT] fallback payments count={len(payments)} login={login}")
+        except Exception as e:
+            print(f"[DAYSTAT] fallback error: {e}")
 
     user['payments'] = payments
 
