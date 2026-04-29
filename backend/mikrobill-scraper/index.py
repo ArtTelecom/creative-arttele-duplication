@@ -496,6 +496,9 @@ def lk_get_payments(lk_session, login):
             for blob in extra_html_blobs:
                 tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', blob, re.IGNORECASE | re.DOTALL)
                 print(f"[LK] regex tr_blocks={len(tr_blocks)}")
+                if len(tr_blocks) <= 10:
+                    for _i, _tr in enumerate(tr_blocks[:6]):
+                        print(f"[LK] dbg tr#{_i}: {_tr[:400]!r}")
                 for tr_idx, tr_html in enumerate(tr_blocks):
                     cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
                     if len(cell_html) < 4:
@@ -917,6 +920,181 @@ def kassa_get_payments(session, login, uid=''):
     return uniq[:200]
 
 
+def kassa_get_daystat_payments(session, login, months_back=24):
+    """Тянет платежи из daystat.php (помесячно) — fallback для абонентов,
+    у которых usrstat.php не отдаёт таблицу финотчёта.
+    """
+    import datetime as _dt
+    payments = []
+    today = _dt.date.today()
+    headers_req = {'User-Agent': 'Mozilla/5.0', 'Referer': KASSA_URL + '/usrstat.php'}
+
+    months_ru = {
+        'январ': 1, 'феврал': 2, 'март': 3, 'апрел': 4, 'мая': 5, 'мае': 5, 'май': 5,
+        'июн': 6, 'июл': 7, 'август': 8, 'сентябр': 9, 'октябр': 10, 'ноябр': 11, 'декабр': 12,
+    }
+
+    def parse_d(text, default_year):
+        t = (text or '').strip().lower()
+        m = re.search(r'(\d{1,2})[./\-](\d{1,2})[./\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?', t)
+        if m:
+            d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if y < 100:
+                y += 2000
+            h = m.group(4) or '00'
+            mi = m.group(5) or '00'
+            return f"{d:02d}.{mo:02d}.{y} {int(h):02d}:{int(mi):02d}"
+        m = re.search(r'(\d{1,2})\s+([а-яё]+)(?:\s+(\d{4}))?(?:\s+(\d{1,2}):(\d{2}))?', t)
+        if m:
+            d = int(m.group(1))
+            mon_word = m.group(2)
+            mo = 0
+            for k, v in months_ru.items():
+                if mon_word.startswith(k):
+                    mo = v
+                    break
+            if mo:
+                y = int(m.group(3)) if m.group(3) else default_year
+                h = m.group(4) or '00'
+                mi = m.group(5) or '00'
+                return f"{d:02d}.{mo:02d}.{y} {int(h):02d}:{int(mi):02d}"
+        # Просто число — день месяца
+        m = re.match(r'^\s*(\d{1,2})\s*$', t)
+        if m:
+            return f"{int(m.group(1)):02d}.??.{default_year} 00:00"
+        return ''
+
+    # Собираем (year, month) на N месяцев назад
+    pairs = []
+    y, mo = today.year, today.month
+    for _ in range(months_back):
+        pairs.append((y, mo))
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            y -= 1
+
+    for year, month in pairs:
+        url = f"{KASSA_URL}/daystat.php?year={year}&month={month}&client={requests.utils.quote(login)}"
+        try:
+            r = session.get(url, headers=headers_req, timeout=15)
+            r.encoding = 'utf-8'
+            html = r.text or ''
+        except Exception as e:
+            print(f"[DAYSTAT] {url} error: {e}")
+            continue
+        if len(html) < 200 or 'chaiserlogin' in html:
+            continue
+
+        # Ищем суммы оплат в строках. У daystat обычно есть колонки:
+        # день/дата, входящий трафик, исходящий трафик, абонплата, оплата, баланс, комментарий
+        tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
+        for tr_html in tr_blocks:
+            cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr_html, re.IGNORECASE | re.DOTALL)
+            if len(cell_html) < 3:
+                continue
+            cells = []
+            for c in cell_html:
+                t = re.sub(r'<[^>]+>', ' ', c)
+                t = (t.replace('&nbsp;', ' ').replace('&amp;', '&').replace('\xa0', ' '))
+                t = re.sub(r'\s+', ' ', t).strip()
+                cells.append(t)
+            # Пропускаем строку-заголовок
+            joined_low = ' '.join(cells).lower()
+            if 'сумма' in joined_low and not any(re.search(r'\d{2}[./\-]\d{2}', c) for c in cells):
+                continue
+            if 'итого' in joined_low or 'всего' in joined_low:
+                continue
+
+            date_str = ''
+            date_idx = -1
+            for i, cell in enumerate(cells):
+                d = parse_d(cell, year)
+                if d and not d.startswith('??'):
+                    date_str = d.replace('??', f"{month:02d}")
+                    date_idx = i
+                    break
+                if d:
+                    date_str = d.replace('??', f"{month:02d}")
+                    date_idx = i
+            if not date_str:
+                continue
+
+            # Ищем сумму платежа — берём положительное число > 10 (не трафик в Мб с дробями)
+            # Платёж — это число в колонках после даты
+            amount_str = ''
+            amount_idx = -1
+            for i, cell in enumerate(cells):
+                if i == date_idx:
+                    continue
+                # игнорим явные «Мб/Кб»
+                if 'мб' in cell.lower() or 'кб' in cell.lower() or 'gb' in cell.lower():
+                    continue
+                m = re.fullmatch(r'\s*-?\+?(\d+(?:[.,]\d{1,2})?)\s*(?:руб\.?)?\s*', cell, re.IGNORECASE)
+                if not m:
+                    continue
+                try:
+                    val = float(m.group(1).replace(',', '.'))
+                except Exception:
+                    continue
+                if val < 1:
+                    continue
+                amount_str = f"{val:.2f}"
+                amount_idx = i
+                break
+            if not amount_str:
+                continue
+
+            balance_str = ''
+            for i, cell in enumerate(cells):
+                if i in (date_idx, amount_idx):
+                    continue
+                m = re.fullmatch(r'\s*-?\d+(?:[.,]\d{1,2})?\s*', cell)
+                if m:
+                    try:
+                        balance_str = f"{float(cell.replace(',', '.').strip()):.2f}"
+                        break
+                    except Exception:
+                        pass
+
+            comment_str = ''
+            for i in range(len(cells) - 1, -1, -1):
+                if i in (date_idx, amount_idx):
+                    continue
+                if len(cells[i]) > 4 and not re.fullmatch(r'-?\d+(?:[.,]\d+)?', cells[i]):
+                    comment_str = cells[i]
+                    break
+
+            payments.append({
+                'date': date_str,
+                'amount': amount_str,
+                'comment': comment_str[:300],
+                'balance_after': balance_str,
+                'type': 'payment',
+            })
+
+    # Дедуп
+    seen = set()
+    uniq = []
+    for p in payments:
+        key = (p.get('date', ''), p.get('amount', ''))
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(p)
+
+    def _sk(p):
+        m = re.match(r'(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?', p.get('date', ''))
+        if not m:
+            return (0,)
+        return (int(m.group(3)), int(m.group(2)), int(m.group(1)),
+                int(m.group(4) or 0), int(m.group(5) or 0))
+    uniq.sort(key=_sk, reverse=True)
+
+    print(f"[DAYSTAT] payments count={len(uniq)} login={login}")
+    return uniq[:200]
+
+
 def build_user_data(login, found, info, session=None):
     speed = ''
     tariff = found.get('tariff', '') or info.get('тариф', '')
@@ -1109,7 +1287,7 @@ def handle_user_info(event, cors):
             payments = lk_get_payments(lk_session, login)
         except Exception as e:
             print(f"[LK] payments error: {e}")
-        # Фолбек: если LK ничего не вернул — пробуем кассу через kassa-сессию
+        # Фолбек 1: если LK ничего не вернул — пробуем кассу через kassa-сессию
         if not payments:
             try:
                 kassa_uid = (found or {}).get('uid', '') if isinstance(found, dict) else ''
@@ -1117,6 +1295,13 @@ def handle_user_info(event, cors):
                 print(f"[KASSA] fallback payments count={len(payments)} login={login}")
             except Exception as e:
                 print(f"[KASSA] fallback payments error: {e}")
+        # Фолбек 2: помесячный обход daystat.php
+        if not payments:
+            try:
+                payments = kassa_get_daystat_payments(session, login)
+                print(f"[DAYSTAT] fallback payments count={len(payments)} login={login}")
+            except Exception as e:
+                print(f"[DAYSTAT] fallback error: {e}")
     else:
         print(f"[LK] skip payments — session not verified for login={login}")
 
