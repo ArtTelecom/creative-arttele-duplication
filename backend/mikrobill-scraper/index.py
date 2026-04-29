@@ -435,22 +435,29 @@ def lk_get_payments(lk_session, login):
                         sep = '&' if '?' in url else '?'
                         full_url = url + sep + '&'.join(f'{k}={requests.utils.quote(v)}' for k, v in params.items())
                     r = lk_session.get(full_url, headers=headers_req, timeout=15)
-                # Декодируем умно: если в utf8-варианте кириллица «битая» (mojibake),
-                # принудительно используем cp1251 (lk.arttele.ru часто отдаёт cp1251)
+                # Декодируем умно: пробуем оба варианта (utf-8 и cp1251),
+                # выбираем тот, где БОЛЬШЕ валидной русской кириллицы.
                 content = r.content or b''
-                html_utf = ''
-                html_cp = ''
                 try:
-                    html_utf = content.decode('utf-8', errors='strict')
+                    html_utf = content.decode('utf-8', errors='replace')
                 except Exception:
-                    html_utf = content.decode('utf-8', errors='ignore')
+                    html_utf = ''
                 try:
-                    html_cp = content.decode('cp1251', errors='ignore')
+                    html_cp = content.decode('cp1251', errors='replace')
                 except Exception:
                     html_cp = ''
-                # Признак mojibake — много латиницы 'Р' рядом с цифрами/символами кириллицы
-                mojibake = sum(1 for ch in html_utf if ch in 'РђСЂСѓРѕРµРёРЅРєР»РјРЅРѕ')
-                if mojibake > 20 and html_cp:
+
+                def _ru_score(s):
+                    if not s:
+                        return -1
+                    # «Хорошие» русские буквы — нижний/верхний регистр базовой кириллицы
+                    good = sum(1 for ch in s if ('\u0430' <= ch <= '\u044f') or ('\u0410' <= ch <= '\u042f') or ch in 'ёЁ')
+                    # «Подозрительные» одиночные Р / С (типичный признак cp1251-в-utf8 mojibake)
+                    bad = sum(1 for ch in s if ch in 'РђСЂСѓРѕРµРёРЅРєР»РјРЅРѕРіРґРјРЅРѕРїСЂСЃС')
+                    return good - bad
+                score_utf = _ru_score(html_utf)
+                score_cp = _ru_score(html_cp)
+                if score_cp >= score_utf and html_cp:
                     html = html_cp
                     r.encoding = 'cp1251'
                 else:
