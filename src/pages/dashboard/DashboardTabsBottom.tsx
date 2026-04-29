@@ -191,10 +191,10 @@ export function TabStats({
   loading: boolean;
   login?: string;
 }) {
-  if (loading) return <LoadingSpinner />;
-
   const trafficList = traffic || [];
   const paymentsList = payments || [];
+  const hasAnyData = paymentsList.length > 0 || trafficList.length > 0;
+  if (loading && !hasAnyData) return <LoadingSpinner />;
 
   const totalPaid = paymentsList.reduce((sum, p) => {
     const n = parseFloat((p.amount || "0").replace(/\s/g, "").replace(",", "."));
