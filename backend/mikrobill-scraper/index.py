@@ -1185,6 +1185,212 @@ def kassa_get_daystat_payments(session, login, months_back=24):
     return uniq[:200]
 
 
+def _parse_traffic_mb(text):
+    """'122 963' / '85,015' / '85015.5 Мб' → float Мб.
+    Возвращает None если не найдено число.
+    """
+    if not text:
+        return None
+    s = str(text).replace('\xa0', ' ').replace('&nbsp;', ' ')
+    s = s.replace(' ', '').replace(',', '.')
+    m = re.search(r'-?\d+(?:\.\d+)?', s)
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except Exception:
+        return None
+
+
+def _format_mb(mb):
+    """Форматирует Мб → строка вида '1.23 ГБ' или '350 МБ'."""
+    if mb is None:
+        return '—'
+    if mb >= 1024 * 1024:
+        return f"{mb / (1024 * 1024):.2f} ТБ"
+    if mb >= 1024:
+        return f"{mb / 1024:.2f} ГБ"
+    return f"{int(round(mb))} МБ"
+
+
+def kassa_get_traffic_summary(session, login, info=None):
+    """Собирает трафик за день/месяц/6 мес/12 мес/всё время.
+
+    Источники:
+    - usrstat.php (info dict): 'за день', 'за месяц', 'за всё время' — текстовые поля
+    - daystat.php помесячно — для агрегата за 6 и 12 месяцев
+    Возвращает dict с числовыми значениями в МБ + форматированными строками.
+    """
+    import datetime as _dt
+
+    info = info or {}
+    headers_req = {'User-Agent': 'Mozilla/5.0', 'Referer': KASSA_URL + '/usrstat.php'}
+
+    def _split_in_out(raw):
+        """'85 015 / 21 343 Мб.' → (in_mb, out_mb)."""
+        if not raw:
+            return (None, None)
+        s = str(raw).replace('\xa0', ' ')
+        parts = re.split(r'[/\\]', s, maxsplit=1)
+        if len(parts) < 2:
+            return (None, None)
+        return (_parse_traffic_mb(parts[0]), _parse_traffic_mb(parts[1]))
+
+    day_in, day_out = _split_in_out(info.get('за день', ''))
+    month_in, month_out = _split_in_out(info.get('за месяц', ''))
+    total_in, total_out = _split_in_out(info.get('за всё время', ''))
+
+    # Помесячные итоги через daystat.php — нужны для 6 и 12 месяцев
+    today = _dt.date.today()
+    pairs = []
+    y, mo = today.year, today.month
+    for _ in range(12):
+        pairs.append((y, mo))
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            y -= 1
+
+    # monthly[(y,m)] = (in_mb, out_mb)
+    monthly = {}
+
+    for year, month in pairs:
+        url = f"{KASSA_URL}/daystat.php?year={year}&month={month}&client={requests.utils.quote(login)}"
+        try:
+            r = session.get(url, headers=headers_req, timeout=12)
+            html = smart_text(r)
+        except Exception as e:
+            print(f"[TRAFFIC] {year}-{month} error: {e}")
+            continue
+        if not html or len(html) < 200 or 'chaiserlogin' in html:
+            continue
+
+        # Ищем строку «Итого» / «Всего» с двумя числами (in/out трафик в Мб)
+        tr_blocks = re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.IGNORECASE | re.DOTALL)
+        m_in = None
+        m_out = None
+        for tr in tr_blocks:
+            cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr, re.IGNORECASE | re.DOTALL)
+            cells = []
+            for c in cell_html:
+                t = re.sub(r'<[^>]+>', ' ', c)
+                t = re.sub(r'\s+', ' ', t).strip()
+                cells.append(t)
+            joined = ' '.join(cells).lower()
+            if 'итого' in joined or 'всего' in joined:
+                # Берём первые два больших числа (трафик in / out в Мб)
+                nums = []
+                for c in cells:
+                    v = _parse_traffic_mb(c)
+                    if v is not None and v >= 0:
+                        nums.append(v)
+                if len(nums) >= 2:
+                    m_in = nums[0]
+                    m_out = nums[1]
+                    break
+
+        # Фолбэк: если строки «Итого» нет — суммируем все строки с датами по дням
+        if m_in is None:
+            sum_in = 0.0
+            sum_out = 0.0
+            cnt = 0
+            for tr in tr_blocks:
+                cell_html = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr, re.IGNORECASE | re.DOTALL)
+                cells = []
+                for c in cell_html:
+                    t = re.sub(r'<[^>]+>', ' ', c)
+                    t = re.sub(r'\s+', ' ', t).strip()
+                    cells.append(t)
+                if len(cells) < 3:
+                    continue
+                # Первая клетка — день месяца (число)
+                if not re.fullmatch(r'\s*\d{1,2}\s*', cells[0]):
+                    continue
+                nums_after = []
+                for c in cells[1:]:
+                    v = _parse_traffic_mb(c)
+                    if v is not None:
+                        nums_after.append(v)
+                if len(nums_after) >= 2:
+                    sum_in += nums_after[0]
+                    sum_out += nums_after[1]
+                    cnt += 1
+            if cnt > 0:
+                m_in = sum_in
+                m_out = sum_out
+
+        if m_in is not None and m_out is not None:
+            monthly[(year, month)] = (m_in, m_out)
+            print(f"[TRAFFIC] {year}-{month}: in={m_in} out={m_out}")
+
+    # Агрегаты
+    cur_year, cur_month = today.year, today.month
+
+    def _sum_last(n):
+        in_sum = 0.0
+        out_sum = 0.0
+        ok = 0
+        y2, m2 = cur_year, cur_month
+        for _ in range(n):
+            if (y2, m2) in monthly:
+                in_sum += monthly[(y2, m2)][0]
+                out_sum += monthly[(y2, m2)][1]
+                ok += 1
+            m2 -= 1
+            if m2 == 0:
+                m2 = 12
+                y2 -= 1
+        return (in_sum, out_sum, ok)
+
+    in_6, out_6, ok6 = _sum_last(6)
+    in_12, out_12, ok12 = _sum_last(12)
+
+    # Если за месяц не нашли в info — возьмём из monthly
+    if month_in is None and (cur_year, cur_month) in monthly:
+        month_in, month_out = monthly[(cur_year, cur_month)]
+
+    summary = {
+        'day': {
+            'in_mb': day_in, 'out_mb': day_out,
+            'in_text': _format_mb(day_in), 'out_text': _format_mb(day_out),
+            'total_mb': (day_in or 0) + (day_out or 0),
+            'total_text': _format_mb((day_in or 0) + (day_out or 0)) if day_in is not None or day_out is not None else '—',
+        },
+        'month': {
+            'in_mb': month_in, 'out_mb': month_out,
+            'in_text': _format_mb(month_in), 'out_text': _format_mb(month_out),
+            'total_mb': (month_in or 0) + (month_out or 0),
+            'total_text': _format_mb((month_in or 0) + (month_out or 0)) if month_in is not None or month_out is not None else '—',
+        },
+        'months_6': {
+            'in_mb': in_6 if ok6 else None,
+            'out_mb': out_6 if ok6 else None,
+            'in_text': _format_mb(in_6) if ok6 else '—',
+            'out_text': _format_mb(out_6) if ok6 else '—',
+            'total_mb': in_6 + out_6 if ok6 else None,
+            'total_text': _format_mb(in_6 + out_6) if ok6 else '—',
+            'months_with_data': ok6,
+        },
+        'months_12': {
+            'in_mb': in_12 if ok12 else None,
+            'out_mb': out_12 if ok12 else None,
+            'in_text': _format_mb(in_12) if ok12 else '—',
+            'out_text': _format_mb(out_12) if ok12 else '—',
+            'total_mb': in_12 + out_12 if ok12 else None,
+            'total_text': _format_mb(in_12 + out_12) if ok12 else '—',
+            'months_with_data': ok12,
+        },
+        'total': {
+            'in_mb': total_in, 'out_mb': total_out,
+            'in_text': _format_mb(total_in), 'out_text': _format_mb(total_out),
+            'total_mb': (total_in or 0) + (total_out or 0),
+            'total_text': _format_mb((total_in or 0) + (total_out or 0)) if total_in is not None or total_out is not None else '—',
+        },
+    }
+    print(f"[TRAFFIC] summary login={login} months_data={len(monthly)}")
+    return summary
+
+
 def build_user_data(login, found, info, session=None):
     speed = ''
     tariff = found.get('tariff', '') or info.get('тариф', '')
@@ -1392,6 +1598,13 @@ def handle_user_info(event, cors):
         print(f"[LK] skip payments — session not verified for login={login}")
 
     user['payments'] = payments
+
+    # Собираем сводку по трафику (день / месяц / 6 мес / 12 мес / всё время)
+    try:
+        user['traffic_summary'] = kassa_get_traffic_summary(session, login, info)
+    except Exception as e:
+        print(f"[TRAFFIC] summary error: {e}")
+        user['traffic_summary'] = None
 
     # Сохраняем точку текущей скорости для истории
     try:

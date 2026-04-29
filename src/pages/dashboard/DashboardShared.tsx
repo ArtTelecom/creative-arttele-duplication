@@ -35,6 +35,25 @@ export interface UserData {
   raw_info?: Record<string, string>;
   payments?: { date?: string; amount?: string; comment?: string }[];
   traffic?: { date?: string; incoming?: string; outgoing?: string }[];
+  traffic_summary?: TrafficSummary | null;
+}
+
+export interface TrafficPeriod {
+  in_mb: number | null;
+  out_mb: number | null;
+  in_text: string;
+  out_text: string;
+  total_mb: number | null;
+  total_text: string;
+  months_with_data?: number;
+}
+
+export interface TrafficSummary {
+  day: TrafficPeriod;
+  month: TrafficPeriod;
+  months_6: TrafficPeriod;
+  months_12: TrafficPeriod;
+  total: TrafficPeriod;
 }
 
 export function GlassCard({

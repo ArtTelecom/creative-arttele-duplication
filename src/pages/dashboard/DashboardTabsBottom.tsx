@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { toast } from "sonner";
 import {
   UserData,
+  TrafficSummary,
   GlassCard,
   NeonButton,
   InputField,
@@ -183,17 +184,19 @@ export function TabTariff({ user, loading }: { user: UserData; loading: boolean 
 export function TabStats({
   traffic,
   payments,
+  trafficSummary,
   loading,
   login,
 }: {
   traffic: UserData["traffic"];
   payments: UserData["payments"];
+  trafficSummary?: TrafficSummary | null;
   loading: boolean;
   login?: string;
 }) {
   const trafficList = traffic || [];
   const paymentsList = payments || [];
-  const hasAnyData = paymentsList.length > 0 || trafficList.length > 0;
+  const hasAnyData = paymentsList.length > 0 || trafficList.length > 0 || !!trafficSummary;
   if (loading && !hasAnyData) return <LoadingSpinner />;
 
   const totalPaid = paymentsList.reduce((sum, p) => {
@@ -306,37 +309,66 @@ export function TabStats({
           <Icon name="BarChart3" size={20} style={{ color: "var(--neon-blue)" }} />
           Статистика трафика
         </h3>
-        {trafficList.length === 0 ? (
+
+        {!trafficSummary ? (
           <p className="text-white/40 text-sm">Нет данных о трафике</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
-                  <th className="text-left text-white/40 font-medium pb-3 pr-4">Дата</th>
-                  <th className="text-left text-white/40 font-medium pb-3 pr-4">Входящий</th>
-                  <th className="text-left text-white/40 font-medium pb-3">Исходящий</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trafficList.map((row, i) => (
-                  <tr
-                    key={i}
-                    className="border-b last:border-b-0"
-                    style={{ borderColor: "rgba(255,255,255,0.04)" }}
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+              {([
+                { key: "day", label: "За день", icon: "Sun", color: "var(--neon-green)" },
+                { key: "month", label: "За месяц", icon: "Calendar", color: "var(--neon-blue)" },
+                { key: "months_6", label: "За 6 месяцев", icon: "CalendarDays", color: "#a855f7" },
+                { key: "months_12", label: "За 12 месяцев", icon: "CalendarRange", color: "#f59e0b" },
+                { key: "total", label: "За всё время", icon: "Infinity", color: "#ef4444" },
+              ] as const).map((p) => {
+                const data = trafficSummary[p.key];
+                return (
+                  <div
+                    key={p.key}
+                    className="rounded-xl p-4"
+                    style={{
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
                   >
-                    <td className="py-3 pr-4 text-white/70">{row.date || "—"}</td>
-                    <td className="py-3 pr-4 font-semibold" style={{ color: "var(--neon-blue)" }}>
-                      {row.incoming || "—"}
-                    </td>
-                    <td className="py-3 font-semibold" style={{ color: "var(--neon-green)" }}>
-                      {row.outgoing || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Icon name={p.icon} size={14} style={{ color: p.color }} />
+                      <span className="text-white/50 text-xs uppercase tracking-wider">
+                        {p.label}
+                      </span>
+                    </div>
+                    <p className="text-xl font-bold text-white font-montserrat leading-tight">
+                      {data.total_text}
+                    </p>
+                    <div className="mt-2 space-y-0.5">
+                      <p className="text-xs flex items-center gap-1.5" style={{ color: "var(--neon-blue)" }}>
+                        <Icon name="ArrowDown" size={11} />
+                        {data.in_text}
+                      </p>
+                      <p className="text-xs flex items-center gap-1.5" style={{ color: "var(--neon-green)" }}>
+                        <Icon name="ArrowUp" size={11} />
+                        {data.out_text}
+                      </p>
+                    </div>
+                    {p.key === "months_6" || p.key === "months_12" ? (
+                      data.months_with_data !== undefined && data.months_with_data > 0 ? (
+                        <p className="text-white/30 text-[10px] mt-2">
+                          данных за {data.months_with_data} мес.
+                        </p>
+                      ) : null
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-white/30 text-xs">
+              <Icon name="ArrowDown" size={11} className="inline mr-1" />
+              входящий ·{" "}
+              <Icon name="ArrowUp" size={11} className="inline mx-1" />
+              исходящий
+            </p>
+          </>
         )}
       </GlassCard>
     </div>
