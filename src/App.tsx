@@ -20,6 +20,7 @@ import CloudLoginPage from "./pages/CloudLoginPage";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import AdminStatsPage from "./pages/AdminStatsPage";
+import StatusPage from "./pages/StatusPage";
 import RequisitesPage from "./pages/RequisitesPage";
 import OfferPage from "./pages/OfferPage";
 import NotFound from "./pages/NotFound";
@@ -51,6 +52,7 @@ const App = () => (
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/admin/stats" element={<AdminStatsPage />} />
+          <Route path="/status" element={<StatusPage />} />
           <Route path="/requisites" element={<RequisitesPage />} />
           <Route path="/offer" element={<OfferPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

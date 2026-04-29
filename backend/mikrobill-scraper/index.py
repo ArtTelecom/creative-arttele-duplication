@@ -85,6 +85,10 @@ def handler(event, context):
         return handle_traffic(event, cors)
     elif action == 'news':
         return handle_news(event, cors)
+    elif action == 'debug_probe':
+        return handle_debug_probe(event, cors)
+    elif action == 'nodes_status':
+        return handle_nodes_status(event, cors)
     elif action == 'speed_history':
         return handle_speed_history(event, cors)
     elif action == 'ping':
@@ -1710,6 +1714,164 @@ def handle_traffic(event, cors):
         'headers': cors,
         'body': json.dumps({'traffic_summary': summary}, ensure_ascii=False),
     }
+
+
+def handle_debug_probe(event, cors):
+    """Разведка: какие endpoints есть в MikroBill для получения списка узлов."""
+    sess = kassa_session()
+    candidates = [
+        '/api.php?action=GET_NAS',
+        '/api.php?action=GET_EQUIPMENT',
+        '/api.php?action=GET_NODES',
+        '/api.php?action=GET_OLT',
+        '/api.php?action=GET_GROUPS',
+        '/api.php?action=GET_SWITCH',
+        '/nas.php',
+        '/equipment.php',
+        '/olt.php',
+        '/switches.php',
+        '/groups.php',
+    ]
+    results = []
+    for path in candidates:
+        try:
+            r = sess.get(KASSA_URL + path, timeout=8)
+            txt = smart_text(r)
+            results.append({
+                'path': path,
+                'status': r.status_code,
+                'len': len(txt),
+                'preview': txt[:300],
+                'login_form': 'name="pass"' in txt or 'chaiserlogin' in txt,
+            })
+        except Exception as e:
+            results.append({'path': path, 'error': str(e)})
+    return {'statusCode': 200, 'headers': cors,
+            'body': json.dumps({'probe': results}, ensure_ascii=False)}
+
+
+def _check_host(host, timeout=3.0):
+    """Проверяет доступность узла. Сначала TCP-порты (80, 443, 22), потом HTTP.
+    Возвращает (online: bool, latency_ms: int|None, error: str).
+    """
+    import socket
+    import time
+    # Если host — URL, выделяем хост и порт
+    target = host.strip()
+    target = re.sub(r'^https?://', '', target)
+    target = target.split('/', 1)[0]
+    if ':' in target:
+        h, _, p = target.partition(':')
+        try:
+            ports = [int(p)]
+        except Exception:
+            ports = [80, 443]
+    else:
+        h = target
+        ports = [80, 443, 22, 8080]
+
+    last_err = ''
+    for port in ports:
+        t0 = time.time()
+        try:
+            with socket.create_connection((h, port), timeout=timeout) as _s:
+                lat = int((time.time() - t0) * 1000)
+                return True, lat, ''
+        except Exception as e:
+            last_err = f"{port}: {e}"
+            continue
+    return False, None, last_err[:200]
+
+
+def handle_nodes_status(event, cors):
+    """Возвращает список узлов и их статусы.
+    POST с body {"action": "ping_now"} запускает свежую проверку всех включённых узлов.
+    GET — возвращает текущее состояние из node_state.
+    """
+    method = event.get('httpMethod', 'GET').upper()
+    do_ping = False
+    if method == 'POST':
+        try:
+            body = json.loads(event.get('body') or '{}')
+            do_ping = body.get('action') == 'ping_now'
+        except Exception:
+            do_ping = False
+
+    conn = _db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, name, host, area, note, enabled FROM nodes ORDER BY id")
+        nodes = cur.fetchall()
+
+        if do_ping:
+            for nid, name, host, _area, _note, enabled in nodes:
+                if not enabled:
+                    continue
+                online, lat, err = _check_host(host)
+                err_safe = err.replace("'", "''")[:200]
+                lat_sql = 'NULL' if lat is None else str(int(lat))
+                cur.execute(
+                    f"INSERT INTO node_checks (node_id, online, latency_ms, error) "
+                    f"VALUES ({int(nid)}, {str(bool(online)).upper()}, {lat_sql}, '{err_safe}')"
+                )
+                cur.execute(
+                    f"INSERT INTO node_state (node_id, online, last_check_at, "
+                    f"last_online_at, fail_streak, latency_ms) "
+                    f"VALUES ({int(nid)}, {str(bool(online)).upper()}, NOW(), "
+                    f"{'NOW()' if online else 'NULL'}, {0 if online else 1}, {lat_sql}) "
+                    f"ON CONFLICT (node_id) DO UPDATE SET "
+                    f"online = EXCLUDED.online, "
+                    f"last_check_at = NOW(), "
+                    f"last_online_at = CASE WHEN EXCLUDED.online THEN NOW() "
+                    f"ELSE node_state.last_online_at END, "
+                    f"fail_streak = CASE WHEN EXCLUDED.online THEN 0 "
+                    f"ELSE node_state.fail_streak + 1 END, "
+                    f"latency_ms = EXCLUDED.latency_ms"
+                )
+            conn.commit()
+
+        cur.execute(
+            "SELECT n.id, n.name, n.host, n.area, n.note, n.enabled, "
+            "s.online, s.last_online_at, s.last_check_at, s.fail_streak, s.latency_ms "
+            "FROM nodes n LEFT JOIN node_state s ON s.node_id = n.id "
+            "ORDER BY n.area, n.name"
+        )
+        rows = cur.fetchall()
+        result = []
+        for r in rows:
+            (nid, name, host, area, note, enabled,
+             online, last_on, last_chk, fails, lat) = r
+            result.append({
+                'id': nid,
+                'name': name,
+                'host': host,
+                'area': area or '',
+                'note': note or '',
+                'enabled': bool(enabled),
+                'online': None if online is None else bool(online),
+                'last_online_at': last_on.isoformat() if last_on else None,
+                'last_check_at': last_chk.isoformat() if last_chk else None,
+                'fail_streak': fails or 0,
+                'latency_ms': lat,
+            })
+        cur.close()
+    finally:
+        conn.close()
+
+    # Считаем агрегаты
+    total = len(result)
+    online_cnt = sum(1 for n in result if n['online'])
+    offline_long = [n for n in result
+                    if n['online'] is False and (n['fail_streak'] or 0) >= 1]
+
+    return {'statusCode': 200, 'headers': cors,
+            'body': json.dumps({
+                'nodes': result,
+                'total': total,
+                'online': online_cnt,
+                'offline': total - online_cnt,
+                'offline_long': len(offline_long),
+            }, ensure_ascii=False, default=str)}
 
 
 def _db_conn():
