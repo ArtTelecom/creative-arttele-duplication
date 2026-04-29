@@ -7,6 +7,56 @@ from bs4 import BeautifulSoup
 KASSA_URL = "https://lk.arttele.ru/kassa"
 
 
+def _smart_decode(content_bytes):
+    """Безопасно декодирует тело HTTP-ответа от lk.arttele.ru.
+
+    На бэкенде MikroBill встречаются два варианта:
+    - реальный UTF-8 (новый ЛК /lk)
+    - cp1251, переданный с заголовком utf-8 (старая касса)
+    Если декодировать вслепую как utf-8 — получаем mojibake (`РђРїСЂРµР»СЏ` вместо «Апреля»).
+    Эта функция декодирует ОБА варианта и выбирает тот, где больше валидной русской кириллицы.
+    """
+    if not content_bytes:
+        return ''
+    if isinstance(content_bytes, str):
+        return content_bytes
+    try:
+        html_utf = content_bytes.decode('utf-8', errors='replace')
+    except Exception:
+        html_utf = ''
+    try:
+        html_cp = content_bytes.decode('cp1251', errors='replace')
+    except Exception:
+        html_cp = ''
+
+    def _ru_score(s):
+        if not s:
+            return -1
+        good = sum(1 for ch in s
+                   if ('\u0430' <= ch <= '\u044f')
+                   or ('\u0410' <= ch <= '\u042f')
+                   or ch in 'ёЁ')
+        bad = sum(1 for ch in s if ch in 'РђСЂСѓРѕРµРёРЅРєР»РјРЅРѕРіРґРјРЅРѕРїСЂСЃС')
+        return good - bad
+
+    score_utf = _ru_score(html_utf)
+    score_cp = _ru_score(html_cp)
+    if score_cp > score_utf and html_cp:
+        return html_cp
+    return html_utf or html_cp
+
+
+def smart_text(response):
+    """Версия для requests.Response — берёт content и декодирует через _smart_decode."""
+    try:
+        return _smart_decode(response.content)
+    except Exception:
+        try:
+            return response.text or ''
+        except Exception:
+            return ''
+
+
 def handler(event, context):
     """API личного кабинета АртТелеком через MikroBill"""
     if event.get('httpMethod') == 'OPTIONS':
@@ -56,8 +106,7 @@ def handle_news(event, cors):
     try:
         s = kassa_session()
         r = s.get(KASSA_URL + '/api.php?action=GET_NEWS', timeout=15)
-        r.encoding = 'utf-8'
-        raw = r.text or ''
+        raw = smart_text(r)
         print(f"[MIKROBILL] GET_NEWS len={len(raw)}")
     except Exception as e:
         print(f"[MIKROBILL] news fetch error: {e}")
@@ -129,8 +178,7 @@ def kassa_find_user(session, login):
         KASSA_URL + '/api.php?action=finduser2&value=' + requests.utils.quote(login),
         timeout=10,
     )
-    r.encoding = 'utf-8'
-    text = r.text.strip()
+    text = smart_text(r).strip()
     if not text or '||' not in text:
         return None
     parts = text.split('||')
@@ -181,8 +229,7 @@ def kassa_get_user_info(session, login):
         tag, url = item
         try:
             r = session.get(url, timeout=10)
-            r.encoding = 'utf-8'
-            return tag, _parse_kv_from_html(r.text), None
+            return tag, _parse_kv_from_html(smart_text(r)), None
         except Exception as e:
             return tag, {}, str(e)
 
@@ -213,8 +260,7 @@ def kassa_get_tariff_price(session, tariff_name):
         return ''
     try:
         r = session.get(KASSA_URL + '/api.php?action=GET_TARIFFS', timeout=10)
-        r.encoding = 'utf-8'
-        text = r.text
+        text = smart_text(r)
         for line in text.split('\n'):
             if tariff_name.lower() in line.lower():
                 nums = re.findall(r'(\d+[.,]?\d*)', line)
@@ -226,8 +272,7 @@ def kassa_get_tariff_price(session, tariff_name):
         print(f"[MIKROBILL] GET_TARIFFS error: {e}")
     try:
         r = session.get(KASSA_URL + '/tariff.php', timeout=10)
-        r.encoding = 'utf-8'
-        soup = BeautifulSoup(r.text, 'html.parser')
+        soup = BeautifulSoup(smart_text(r), 'html.parser')
         for tr in soup.find_all('tr'):
             row_text = tr.get_text(' ', strip=True)
             if tariff_name.lower() in row_text.lower():
@@ -437,38 +482,12 @@ def lk_get_payments(lk_session, login):
                     r = lk_session.get(full_url, headers=headers_req, timeout=15)
                 # Декодируем умно: пробуем оба варианта (utf-8 и cp1251),
                 # выбираем тот, где БОЛЬШЕ валидной русской кириллицы.
-                content = r.content or b''
-                try:
-                    html_utf = content.decode('utf-8', errors='replace')
-                except Exception:
-                    html_utf = ''
-                try:
-                    html_cp = content.decode('cp1251', errors='replace')
-                except Exception:
-                    html_cp = ''
-
-                def _ru_score(s):
-                    if not s:
-                        return -1
-                    # «Хорошие» русские буквы — нижний/верхний регистр базовой кириллицы
-                    good = sum(1 for ch in s if ('\u0430' <= ch <= '\u044f') or ('\u0410' <= ch <= '\u042f') or ch in 'ёЁ')
-                    # «Подозрительные» одиночные Р / С (типичный признак cp1251-в-utf8 mojibake)
-                    bad = sum(1 for ch in s if ch in 'РђСЂСѓРѕРµРёРЅРєР»РјРЅРѕРіРґРјРЅРѕРїСЂСЃС')
-                    return good - bad
-                score_utf = _ru_score(html_utf)
-                score_cp = _ru_score(html_cp)
-                if score_cp >= score_utf and html_cp:
-                    html = html_cp
-                    r.encoding = 'cp1251'
-                else:
-                    html = html_utf or html_cp
-                    if r.apparent_encoding:
-                        r.encoding = r.apparent_encoding
+                html = smart_text(r)
             except Exception as e:
                 print(f"[LK] payments {method} {url} error: {e}")
                 continue
 
-            print(f"[LK] payments {method} {url} status={r.status_code} len={len(html)} enc={r.encoding}")
+            print(f"[LK] payments {method} {url} status={r.status_code} len={len(html)}")
             if len(html) < 500:
                 continue
             if 'name="pass"' in html or 'name="login"' in html:
@@ -774,8 +793,7 @@ def kassa_get_payments(session, login, uid=''):
     # из ссылок/инпутов на странице — он понадобится для финансового отчёта
     try:
         first_url = KASSA_URL + '/usrstat.php?client=' + requests.utils.quote(login)
-        first_html = session.get(first_url, headers=headers_req, timeout=15).text
-        first_html = first_html if isinstance(first_html, str) else ''
+        first_html = smart_text(session.get(first_url, headers=headers_req, timeout=15))
         # Ищем UID в формате client=XXXXXX в ссылках, action, hidden inputs
         uid_matches = re.findall(r'client=([A-Za-z0-9]{6,16})', first_html)
         # фильтруем — это не должно быть длинным числом-телефоном
@@ -810,8 +828,7 @@ def kassa_get_payments(session, login, uid=''):
                 r = session.post(url, data=data or {}, headers=headers_req, timeout=20)
             else:
                 r = session.get(url, headers=headers_req, timeout=20)
-            r.encoding = 'utf-8'
-            return r.text
+            return smart_text(r)
         except Exception as e:
             print(f"[MIKROBILL] payments fetch error {method} {url}: {e}")
             return ''
@@ -1052,8 +1069,7 @@ def kassa_get_daystat_payments(session, login, months_back=24):
         url = f"{KASSA_URL}/daystat.php?year={year}&month={month}&client={requests.utils.quote(login)}"
         try:
             r = session.get(url, headers=headers_req, timeout=15)
-            r.encoding = 'utf-8'
-            html = r.text or ''
+            html = smart_text(r)
         except Exception as e:
             print(f"[DAYSTAT] {url} error: {e}")
             continue
@@ -1284,8 +1300,7 @@ def handle_auth(event, cors):
             data={'login': login, 'pass': password, 'go': ''},
             timeout=15,
         )
-    lk_resp.encoding = 'utf-8'
-    if 'name="pass"' in lk_resp.text:
+    if 'name="pass"' in smart_text(lk_resp):
         return {'statusCode': 401, 'headers': cors, 'body': json.dumps({'error': 'Неверный логин или пароль'})}
 
     info = kassa_get_user_info(session, login)
@@ -1316,8 +1331,7 @@ def handle_user_info(event, cors):
             data={'login': login, 'pass': password, 'go': ''},
             timeout=15,
         )
-    lk_resp.encoding = 'utf-8'
-    if 'name="pass"' in lk_resp.text:
+    if 'name="pass"' in smart_text(lk_resp):
         return {'statusCode': 401, 'headers': cors, 'body': json.dumps({'error': 'Auth failed'})}
 
     session = kassa_session()
@@ -1341,9 +1355,7 @@ def handle_user_info(event, cors):
                 candidates.append(v_clean)
     try:
         idx = lk_session.get('http://lk.arttele.ru/index.php', timeout=10)
-        if idx.apparent_encoding:
-            idx.encoding = idx.apparent_encoding
-        idx_html = idx.text or ''
+        idx_html = smart_text(idx)
         for c in candidates:
             if c and c in idx_html:
                 session_owner_ok = True
