@@ -147,7 +147,9 @@ export default function ServicesAndTariffs() {
                       <span className="text-white/40 text-lg">₽/мес</span>
                     </div>
                     <div className="text-2xl font-montserrat font-bold mt-1" style={{ color: clr }}>
-                      {parseInt(t.speed) >= 1000 ? "1 Гбит/с" : `${t.speed} Мбит/с`}
+                      {parseInt(t.speed) >= 1000
+                        ? `${(parseInt(t.speed) / 1000).toString().replace(/\.0$/, "")} Гбит/с`
+                        : `${t.speed} Мбит/с`}
                     </div>
                   </div>
                   <div className="section-divider mb-4" />
