@@ -56,14 +56,7 @@ export function TabBalance({ user, payments, loading }: { user: UserData; paymen
 
       <BalanceForecastCard user={user} />
 
-      {showPayBanner && (
-        <PaymentBanner
-          onClose={() => setShowPayBanner(false)}
-          login={user.login}
-          email={user.email}
-          phone={user.phone}
-        />
-      )}
+      {showPayBanner && <PaymentBanner onClose={() => setShowPayBanner(false)} />}
 
       <GlassCard className="p-6">
         <h3 className="text-lg font-bold text-white font-montserrat mb-4">Последние платежи</h3>
