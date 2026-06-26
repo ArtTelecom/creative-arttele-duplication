@@ -102,6 +102,7 @@ def handler(event, context):
         amount_kop = int(round(amount * 100))
 
         notify_url = funcurl_self(event)
+        return_url = str(body.get("return_url", "")).strip()
 
         init_params = {
             "TerminalKey": terminal_key,
@@ -111,6 +112,10 @@ def handler(event, context):
         }
         if notify_url:
             init_params["NotificationURL"] = notify_url
+        if return_url:
+            sep = "&" if "?" in return_url else "?"
+            init_params["SuccessURL"] = f"{return_url}{sep}paid={order_id}&amount={amount:.0f}"
+            init_params["FailURL"] = f"{return_url}{sep}payfail=1"
         token = _make_token(init_params, password)
         init_params["Token"] = token
 

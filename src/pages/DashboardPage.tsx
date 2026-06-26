@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PageBackground from "@/components/PageBackground";
 import { TabKey } from "./dashboard/DashboardShared";
 import useDashboardData from "./dashboard/useDashboardData";
@@ -6,12 +6,33 @@ import DashboardBackground from "./dashboard/DashboardBackground";
 import DashboardHeader from "./dashboard/DashboardHeader";
 import DashboardSidebar from "./dashboard/DashboardSidebar";
 import DashboardContent from "./dashboard/DashboardContent";
+import PaymentSuccess from "./dashboard/PaymentSuccess";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paidAmount, setPaidAmount] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
 
-  const { userData, user, loading, isBlocked, handleLogout } = useDashboardData();
+  const { userData, user, loading, isBlocked, handleRefresh, handleLogout } = useDashboardData();
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    const qIndex = hash.indexOf("?");
+    if (qIndex === -1) return;
+    const params = new URLSearchParams(hash.slice(qIndex + 1));
+    if (params.get("paid")) {
+      setPaidAmount(params.get("amount"));
+      setShowSuccess(true);
+      setActiveTab("balance");
+      const timers = [3000, 8000, 15000].map((ms) =>
+        window.setTimeout(() => handleRefresh(), ms)
+      );
+      const base = hash.slice(0, qIndex);
+      window.history.replaceState(null, "", window.location.pathname + base);
+      return () => timers.forEach((t) => window.clearTimeout(t));
+    }
+  }, []);
 
   const handleMenuClick = (key: TabKey | "logout") => {
     if (key === "logout") {
@@ -58,6 +79,10 @@ export default function DashboardPage() {
         isBlocked={isBlocked}
         onChangeTab={handleChangeTab}
       />
+
+      {showSuccess && (
+        <PaymentSuccess amount={paidAmount || undefined} onClose={() => setShowSuccess(false)} />
+      )}
     </div>
   );
 }

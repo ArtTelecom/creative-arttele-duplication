@@ -29,10 +29,11 @@ export default function PaymentBanner({ onClose, login, email, phone }: Props) {
     }
     setLoading(true);
     try {
+      const returnUrl = `${window.location.origin}${window.location.pathname}#/dashboard`;
       const res = await fetch(`${funcUrls["tbank-pay"]}?action=create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login, amount: numAmount, email, phone }),
+        body: JSON.stringify({ login, amount: numAmount, email, phone, return_url: returnUrl }),
       });
       const data = await res.json();
       if (data.pay_url) {
