@@ -52,10 +52,14 @@ def _http_post_json(url: str, payload: dict) -> dict:
 
 def _credit_to_billing(login: str, amount: float, order_id: str) -> dict:
     """Зачисляет платёж на счёт абонента через PHP-модуль mikrobill-api.php (action=pay)."""
-    api_url = os.environ.get("MIKROBILL_API_URL", "")
-    api_key = os.environ.get("MIKROBILL_API_KEY", "")
+    api_url = os.environ.get("MIKROBILL_API_URL", "").strip()
+    api_key = os.environ.get("MIKROBILL_API_KEY", "").strip()
     if not api_url or not api_key:
         return {"ok": False, "error": "MIKROBILL_API_URL/KEY not set"}
+
+    if not api_url.lower().startswith(("http://", "https://")):
+        print(f"[TBANK] MIKROBILL_API_URL невалиден (не похож на адрес): '{api_url[:40]}'")
+        return {"ok": False, "error": f"MIKROBILL_API_URL must start with http:// or https:// (got '{api_url[:40]}')"}
 
     sep = "&" if "?" in api_url else "?"
     url = f"{api_url}{sep}action=pay"
