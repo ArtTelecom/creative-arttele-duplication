@@ -82,6 +82,30 @@ def handler(event, context):
     terminal_key = os.environ.get("TBANK_TERMINAL_KEY", "")
     password = os.environ.get("TBANK_PASSWORD", "")
 
+    raw_body = event.get("body") or ""
+    looks_like_notify = False
+    if method == "POST" and raw_body:
+        try:
+            _peek = json.loads(raw_body)
+            if isinstance(_peek, dict) and "OrderId" in _peek and "Status" in _peek:
+                looks_like_notify = True
+        except Exception:
+            looks_like_notify = False
+
+    print(f"[TBANK] request method={method} action='{action}' notify_guess={looks_like_notify} has_key={bool(terminal_key)} has_pass={bool(password)}")
+
+    if looks_like_notify and action != "notify":
+        action = "notify"
+
+    if action == "diag":
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({
+            "has_terminal_key": bool(terminal_key),
+            "has_password": bool(password),
+            "has_mikrobill_url": bool(os.environ.get("MIKROBILL_API_URL", "")),
+            "has_mikrobill_key": bool(os.environ.get("MIKROBILL_API_KEY", "")),
+            "notify_url": funcurl_self(event),
+        })}
+
     if action == "create":
         if not terminal_key or not password:
             return {"statusCode": 500, "headers": cors, "body": json.dumps({"error": "Эквайринг не настроен"})}
@@ -154,19 +178,22 @@ def handler(event, context):
         raw = event.get("body") or "{}"
         try:
             data = json.loads(raw)
-        except Exception:
+        except Exception as e:
+            print(f"[TBANK] notify bad json: {e} raw={raw[:200]}")
             return {"statusCode": 200, "headers": cors, "body": "OK"}
+
+        status = data.get("Status", "")
+        order_id = str(data.get("OrderId", ""))
+        print(f"[TBANK] notify status={status} order={order_id} success={data.get('Success')}")
 
         recv_token = data.get("Token", "")
         check = {k: v for k, v in data.items() if k != "Token"}
         expected = _make_token(check, password)
         if recv_token != expected:
-            print(f"[TBANK] bad token order={data.get('OrderId')}")
+            print(f"[TBANK] bad token order={order_id} recv={recv_token[:12]}... exp={expected[:12]}...")
             return {"statusCode": 200, "headers": cors, "body": "OK"}
 
-        status = data.get("Status", "")
-        order_id = str(data.get("OrderId", ""))
-        if status == "CONFIRMED" and order_id:
+        if status in ("CONFIRMED", "AUTHORIZED") and order_id:
             login = order_id.rsplit("-", 1)[0]
             extra = data.get("DATA") or {}
             if isinstance(extra, dict) and extra.get("login"):
@@ -174,6 +201,8 @@ def handler(event, context):
             amount = float(data.get("Amount", 0)) / 100.0
             result = _credit_to_billing(login, amount, order_id)
             print(f"[TBANK] credit login={login} amount={amount} order={order_id} -> {result}")
+        else:
+            print(f"[TBANK] notify ignored status={status}")
 
         return {"statusCode": 200, "headers": cors, "body": "OK"}
 
