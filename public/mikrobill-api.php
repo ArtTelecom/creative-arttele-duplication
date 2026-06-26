@@ -421,5 +421,114 @@ if ($action === 'tariffs') {
     exit;
 }
 
+if ($action === 'pay') {
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        http_response_code(405);
+        echo json_encode(['error' => 'POST required']);
+        exit;
+    }
+
+    $body = getBody();
+    $login = isset($body['login']) ? trim($body['login']) : '';
+    $amount = isset($body['amount']) ? floatval($body['amount']) : 0;
+    $orderId = isset($body['order_id']) ? trim($body['order_id']) : '';
+    $comment = isset($body['comment']) ? trim($body['comment']) : 'Онлайн-оплата Т-Банк';
+
+    if (!$login || $amount <= 0 || !$orderId) {
+        http_response_code(400);
+        echo json_encode(['error' => 'login, amount, order_id required']);
+        exit;
+    }
+
+    $usersTable = detectTable($pdo, ['users', 'user', 'abonents', 'abonent', 'clients', 'accounts']);
+    if (!$usersTable) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Users table not found']);
+        exit;
+    }
+
+    $ucols = getColumns($pdo, $usersTable);
+    $colUser = findColumn($ucols, ['user', 'login', 'username', 'name', 'account']);
+    $colDeposit = findColumn($ucols, ['deposit', 'balance', 'money', 'summa']);
+    if (!$colUser || !$colDeposit) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Cannot detect user/deposit columns', 'columns' => $ucols]);
+        exit;
+    }
+
+    $stmt = $pdo->prepare("SELECT * FROM `$usersTable` WHERE `$colUser` = ?");
+    $stmt->execute([$login]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$user) {
+        http_response_code(404);
+        echo json_encode(['error' => 'User not found']);
+        exit;
+    }
+
+    $payTable = detectTable($pdo, ['payments', 'pays', 'pay', 'payment', 'oplata', 'finance']);
+
+    // Защита от двойного зачисления: ищем платёж с таким order_id в комментарии
+    if ($payTable) {
+        $pcols = getColumns($pdo, $payTable);
+        $pColComment = findColumn($pcols, ['comment', 'comments', 'note', 'notes', 'description', 'descr']);
+        if ($pColComment) {
+            $dupStmt = $pdo->prepare("SELECT COUNT(*) FROM `$payTable` WHERE `$pColComment` LIKE ?");
+            $dupStmt->execute(['%' . $orderId . '%']);
+            if (intval($dupStmt->fetchColumn()) > 0) {
+                echo json_encode(['ok' => true, 'already_paid' => true, 'order_id' => $orderId]);
+                exit;
+            }
+        }
+    }
+
+    try {
+        $pdo->beginTransaction();
+
+        $oldBalance = floatval($user[$colDeposit] ?? 0);
+        $newBalance = $oldBalance + $amount;
+        $upd = $pdo->prepare("UPDATE `$usersTable` SET `$colDeposit` = ? WHERE `$colUser` = ?");
+        $upd->execute([$newBalance, $login]);
+
+        if ($payTable) {
+            $pcols = getColumns($pdo, $payTable);
+            $pColUser = findColumn($pcols, ['user', 'login', 'username', 'uid', 'account', 'client']);
+            $pColDate = findColumn($pcols, ['date', 'datetime', 'date_pay', 'pay_date', 'created', 'time', 'timestamp']);
+            $pColSum = findColumn($pcols, ['sum', 'summa', 'amount', 'money', 'value']);
+            $pColType = findColumn($pcols, ['type', 'method', 'pay_type', 'payment_type', 'source']);
+            $pColComment = findColumn($pcols, ['comment', 'comments', 'note', 'notes', 'description', 'descr']);
+
+            $insCols = [];
+            $insVals = [];
+            $insParams = [];
+            if ($pColUser) { $insCols[] = "`$pColUser`"; $insVals[] = '?'; $insParams[] = $login; }
+            if ($pColDate) { $insCols[] = "`$pColDate`"; $insVals[] = 'NOW()'; }
+            if ($pColSum) { $insCols[] = "`$pColSum`"; $insVals[] = '?'; $insParams[] = $amount; }
+            if ($pColType) { $insCols[] = "`$pColType`"; $insVals[] = '?'; $insParams[] = 'Т-Банк'; }
+            if ($pColComment) { $insCols[] = "`$pColComment`"; $insVals[] = '?'; $insParams[] = $comment . ' [' . $orderId . ']'; }
+
+            if (!empty($insCols)) {
+                $insSql = "INSERT INTO `$payTable` (" . implode(', ', $insCols) . ") VALUES (" . implode(', ', $insVals) . ")";
+                $insStmt = $pdo->prepare($insSql);
+                $insStmt->execute($insParams);
+            }
+        }
+
+        $pdo->commit();
+        echo json_encode([
+            'ok' => true,
+            'login' => $login,
+            'amount' => $amount,
+            'old_balance' => $oldBalance,
+            'new_balance' => $newBalance,
+            'order_id' => $orderId,
+        ]);
+    } catch (Exception $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        http_response_code(500);
+        echo json_encode(['error' => 'Payment failed: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
 http_response_code(400);
-echo json_encode(['error' => 'Unknown action', 'available_actions' => ['ping', 'auth', 'user_info', 'payments', 'traffic', 'tariffs']]);
+echo json_encode(['error' => 'Unknown action', 'available_actions' => ['ping', 'auth', 'user_info', 'payments', 'traffic', 'tariffs', 'pay']]);
