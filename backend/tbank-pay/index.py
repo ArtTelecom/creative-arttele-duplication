@@ -50,34 +50,162 @@ def _http_post_json(url: str, payload: dict) -> dict:
         return {"Success": False, "Message": str(e)}
 
 
-def _credit_to_billing(login: str, amount: float, order_id: str) -> dict:
-    """Зачисляет платёж на счёт абонента через PHP-модуль mikrobill-api.php (action=pay)."""
-    api_url = os.environ.get("MIKROBILL_API_URL", "").strip()
-    api_key = os.environ.get("MIKROBILL_API_KEY", "").strip()
-    if not api_url or not api_key:
-        return {"ok": False, "error": "MIKROBILL_API_URL/KEY not set"}
+def _detect_table(cur, variants):
+    cur.execute("SHOW TABLES")
+    tables = [row[0] for row in cur.fetchall()]
+    lower = {t.lower(): t for t in tables}
+    for v in variants:
+        if v.lower() in lower:
+            return lower[v.lower()]
+    return None
 
-    if not api_url.lower().startswith(("http://", "https://")):
-        print(f"[TBANK] MIKROBILL_API_URL невалиден (не похож на адрес): '{api_url[:40]}'")
-        return {"ok": False, "error": f"MIKROBILL_API_URL must start with http:// or https:// (got '{api_url[:40]}')"}
 
-    sep = "&" if "?" in api_url else "?"
-    url = f"{api_url}{sep}action=pay"
-    body = json.dumps({
-        "login": login,
-        "amount": amount,
-        "order_id": order_id,
-        "comment": "Онлайн-оплата Т-Банк",
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=body, headers={
-        "Content-Type": "application/json",
-        "X-Api-Key": api_key,
-    }, method="POST")
+def _columns(cur, table):
+    cur.execute(f"SHOW COLUMNS FROM `{table}`")
+    return [row[0].lower() for row in cur.fetchall()]
+
+
+def _find_col(cols, variants):
+    cl = [c.lower() for c in cols]
+    for v in variants:
+        if v.lower() in cl:
+            return v
+    return None
+
+
+def _dbtest() -> dict:
+    """Проверяет подключение к БД MikroBill и показывает определённые таблицы/колонки (без зачисления)."""
+    import pymysql
+
+    host = os.environ.get("MIKROBILL_DB_HOST", "").strip()
+    name = os.environ.get("MIKROBILL_DB_NAME", "").strip()
+    user = os.environ.get("MIKROBILL_DB_USER", "").strip()
+    passwd = os.environ.get("MIKROBILL_DB_PASS", "")
+    if not host or not name or not user:
+        return {"ok": False, "error": "MIKROBILL_DB_* secrets not set"}
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        conn = pymysql.connect(host=host, user=user, password=passwd, database=name,
+                               charset="utf8mb4", connect_timeout=10)
+    except Exception as e:
+        return {"ok": False, "error": f"DB connect failed: {e}"}
+    try:
+        with conn.cursor() as cur:
+            users_table = _detect_table(cur, ["users", "user", "abonents", "abonent", "clients", "accounts"])
+            pay_table = _detect_table(cur, ["payments", "pays", "pay", "payment", "oplata", "finance"])
+            ucols = _columns(cur, users_table) if users_table else []
+            return {
+                "ok": True,
+                "users_table": users_table,
+                "user_col": _find_col(ucols, ["user", "login", "username", "name", "account"]),
+                "deposit_col": _find_col(ucols, ["deposit", "balance", "money", "summa"]),
+                "pay_table": pay_table,
+            }
     except Exception as e:
         return {"ok": False, "error": str(e)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
+def _credit_to_billing(login: str, amount: float, order_id: str) -> dict:
+    """Зачисляет платёж напрямую в БД MikroBill (MySQL): увеличивает баланс абонента и пишет запись в историю платежей."""
+    import pymysql
+
+    host = os.environ.get("MIKROBILL_DB_HOST", "").strip()
+    name = os.environ.get("MIKROBILL_DB_NAME", "").strip()
+    user = os.environ.get("MIKROBILL_DB_USER", "").strip()
+    passwd = os.environ.get("MIKROBILL_DB_PASS", "")
+    if not host or not name or not user:
+        return {"ok": False, "error": "MIKROBILL_DB_* secrets not set"}
+
+    try:
+        conn = pymysql.connect(
+            host=host, user=user, password=passwd, database=name,
+            charset="utf8mb4", connect_timeout=10, autocommit=False,
+        )
+    except Exception as e:
+        return {"ok": False, "error": f"DB connect failed: {e}"}
+
+    try:
+        with conn.cursor() as cur:
+            users_table = _detect_table(cur, ["users", "user", "abonents", "abonent", "clients", "accounts"])
+            if not users_table:
+                return {"ok": False, "error": "users table not found"}
+
+            ucols = _columns(cur, users_table)
+            col_user = _find_col(ucols, ["user", "login", "username", "name", "account"])
+            col_deposit = _find_col(ucols, ["deposit", "balance", "money", "summa"])
+            if not col_user or not col_deposit:
+                return {"ok": False, "error": "user/deposit columns not detected"}
+
+            pay_table = _detect_table(cur, ["payments", "pays", "pay", "payment", "oplata", "finance"])
+
+            # Защита от двойного зачисления по order_id в комментарии
+            if pay_table:
+                pcols = _columns(cur, pay_table)
+                p_comment = _find_col(pcols, ["comment", "comments", "note", "notes", "description", "descr"])
+                if p_comment:
+                    cur.execute(
+                        f"SELECT COUNT(*) FROM `{pay_table}` WHERE `{p_comment}` LIKE %s",
+                        (f"%{order_id}%",),
+                    )
+                    if int(cur.fetchone()[0]) > 0:
+                        conn.commit()
+                        return {"ok": True, "already_paid": True, "order_id": order_id}
+
+            cur.execute(f"SELECT `{col_deposit}` FROM `{users_table}` WHERE `{col_user}` = %s", (login,))
+            row = cur.fetchone()
+            if not row:
+                return {"ok": False, "error": f"user '{login}' not found"}
+
+            old_balance = float(row[0] or 0)
+            new_balance = old_balance + amount
+            cur.execute(
+                f"UPDATE `{users_table}` SET `{col_deposit}` = %s WHERE `{col_user}` = %s",
+                (new_balance, login),
+            )
+
+            if pay_table:
+                pcols = _columns(cur, pay_table)
+                p_user = _find_col(pcols, ["user", "login", "username", "uid", "account", "client"])
+                p_date = _find_col(pcols, ["date", "datetime", "date_pay", "pay_date", "created", "time", "timestamp"])
+                p_sum = _find_col(pcols, ["sum", "summa", "amount", "money", "value"])
+                p_type = _find_col(pcols, ["type", "method", "pay_type", "payment_type", "source"])
+                p_comment = _find_col(pcols, ["comment", "comments", "note", "notes", "description", "descr"])
+
+                fields, places, values = [], [], []
+                if p_user:
+                    fields.append(f"`{p_user}`"); places.append("%s"); values.append(login)
+                if p_date:
+                    fields.append(f"`{p_date}`"); places.append("NOW()")
+                if p_sum:
+                    fields.append(f"`{p_sum}`"); places.append("%s"); values.append(amount)
+                if p_type:
+                    fields.append(f"`{p_type}`"); places.append("%s"); values.append("Т-Банк")
+                if p_comment:
+                    fields.append(f"`{p_comment}`"); places.append("%s"); values.append(f"Онлайн-оплата Т-Банк [{order_id}]")
+
+                if fields:
+                    cur.execute(
+                        f"INSERT INTO `{pay_table}` ({', '.join(fields)}) VALUES ({', '.join(places)})",
+                        tuple(values),
+                    )
+
+        conn.commit()
+        return {"ok": True, "login": login, "amount": amount, "old_balance": old_balance, "new_balance": new_balance, "order_id": order_id}
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(e)}
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def handler(event, context):
@@ -112,10 +240,15 @@ def handler(event, context):
         return {"statusCode": 200, "headers": cors, "body": json.dumps({
             "has_terminal_key": bool(terminal_key),
             "has_password": bool(password),
-            "has_mikrobill_url": bool(os.environ.get("MIKROBILL_API_URL", "")),
-            "has_mikrobill_key": bool(os.environ.get("MIKROBILL_API_KEY", "")),
+            "has_db_host": bool(os.environ.get("MIKROBILL_DB_HOST", "")),
+            "has_db_name": bool(os.environ.get("MIKROBILL_DB_NAME", "")),
+            "has_db_user": bool(os.environ.get("MIKROBILL_DB_USER", "")),
+            "has_db_pass": bool(os.environ.get("MIKROBILL_DB_PASS", "")),
             "notify_url": funcurl_self(event),
         })}
+
+    if action == "dbtest":
+        return {"statusCode": 200, "headers": cors, "body": json.dumps(_dbtest())}
 
     if action == "create":
         if not terminal_key or not password:
