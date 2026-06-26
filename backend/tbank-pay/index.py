@@ -209,13 +209,13 @@ def handler(event, context):
     return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Unknown action"})}
 
 
+SELF_URL = "https://functions.poehali.dev/740464df-96c9-4053-b7ad-d737892f97ca"
+
+
 def funcurl_self(event) -> str:
-    """Возвращает публичный URL этой же функции для NotificationURL, добавляя ?action=notify."""
-    headers = event.get("headers") or {}
-    host = headers.get("Host") or headers.get("host") or ""
-    rc = event.get("requestContext") or {}
-    domain = rc.get("domainName") or host
-    path = rc.get("path") or "/"
-    if not domain:
-        return ""
-    return f"https://{domain}{path}?action=notify"
+    """Возвращает публичный URL этой же функции для NotificationURL, добавляя ?action=notify.
+
+    Используем постоянный публичный URL функции, т.к. за прокси служебные
+    заголовки отдают голый домен Yandex Cloud без ID функции.
+    """
+    return f"{SELF_URL}?action=notify"
