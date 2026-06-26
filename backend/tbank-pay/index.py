@@ -17,6 +17,13 @@ def _cors():
     }
 
 
+def _tb_str(v) -> str:
+    """Приводит значение к строке по правилам Т-Банк: булевы — как 'true'/'false' в нижнем регистре."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return str(v)
+
+
 def _make_token(params: dict, password: str) -> str:
     """Формирует подпись Token по правилам Т-Банк: только корневые скалярные поля + Password, сортировка по ключу, конкатенация значений, SHA-256."""
     items = {}
@@ -27,7 +34,7 @@ def _make_token(params: dict, password: str) -> str:
             continue
         items[k] = v
     items["Password"] = password
-    concat = "".join(str(items[k]) for k in sorted(items.keys()))
+    concat = "".join(_tb_str(items[k]) for k in sorted(items.keys()))
     return hashlib.sha256(concat.encode("utf-8")).hexdigest()
 
 
