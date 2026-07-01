@@ -228,6 +228,46 @@ const locations: Location[] = [
     ],
     tariffs: commonTariffs,
   },
+  {
+    slug: "plodorodniy",
+    name: "Плодородный",
+    description: "Оптоволоконный интернет в посёлке Плодородный, улица Тихорецкая. Без ограничений трафика.",
+    available: true,
+    promos: [
+      { title: "Социальный тариф для новых", desc: "30 Мбит/с за 500 ₽ — первые 3 месяца, затем автоматический переход на Оптима+.", badge: "Акция", color: "green" },
+    ],
+    tariffs: [
+      {
+        name: "Комфорт",
+        speed: "100",
+        price: "1250",
+        color: "blue",
+        features: ["100 Мбит/с", "Безлимит", "Поддержка 24/7"],
+      },
+      {
+        name: "Старт",
+        speed: "200",
+        price: "1400",
+        color: "green",
+        features: ["200 Мбит/с", "Безлимит", "Поддержка 24/7"],
+      },
+      {
+        name: "Оптима",
+        speed: "300",
+        price: "1600",
+        color: "green",
+        popular: true,
+        features: ["300 Мбит/с", "Безлимит", "Поддержка 24/7", "__social__"],
+      },
+      {
+        name: "Премиум",
+        speed: "500",
+        price: "1800",
+        color: "purple",
+        features: ["500 Мбит/с", "Безлимит", "Поддержка 24/7", "__social__"],
+      },
+    ],
+  },
 ];
 
 export default locations;
