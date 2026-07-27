@@ -1,4 +1,5 @@
 import Icon from "@/components/ui/icon";
+import InstallAppButton from "@/components/InstallAppButton";
 
 const stats = [
   { num: "14", suffix: "лет", label: "на рынке" },
@@ -46,6 +47,11 @@ export default function HeroSection({ heroImg, scrollTo }: HeroSectionProps) {
               <button onClick={() => scrollTo("#coverage")} className="px-6 py-3.5 rounded-xl border border-white/15 text-white font-semibold text-base hover:border-[rgba(0,212,255,0.4)] hover:bg-[rgba(0,212,255,0.05)] transition-all">
                 Проверить покрытие
               </button>
+              <InstallAppButton
+                className="px-6 py-3.5 rounded-xl border border-white/15 text-white font-semibold text-base hover:border-[rgba(0,212,255,0.4)] hover:bg-[rgba(0,212,255,0.05)] transition-all"
+                style={{ background: "transparent" }}
+                label="Установить приложение"
+              />
             </div>
             <div className="slide-up-delay-4 flex gap-8 flex-wrap">
               {[{ val: "2.5 Гбит/с", label: "макс. скорость" }, { val: "24 ч", label: "подключение" }, { val: "0 ₽", label: "подключение" }].map((s, i) => (

@@ -60,10 +60,10 @@ export default function InstallAppButton({
   };
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full sm:w-auto">
       <button
         onClick={handleClick}
-        className={`inline-flex items-center gap-2 font-bold transition-all ${className}`}
+        className={`inline-flex items-center justify-center gap-2 font-bold transition-all ${className}`}
         style={{ background: "linear-gradient(135deg, var(--neon-blue), var(--neon-green))", ...style }}
       >
         <Icon name="Download" size={18} />
