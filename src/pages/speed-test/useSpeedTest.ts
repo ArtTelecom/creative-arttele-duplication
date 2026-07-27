@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { SPEED_TEST_API, Phase, Results, HistoryEntry } from "./constants";
+import { SPEED_TEST_ORIGIN, SPEED_TEST_API, SPEED_TEST_FILE, SPEED_TEST_FILE_BYTES, Phase, Results, HistoryEntry } from "./constants";
 
 export function useSpeedTest() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -37,13 +37,14 @@ export function useSpeedTest() {
 
   async function measurePing(): Promise<number> {
     const times: number[] = [];
-    const url = `${SPEED_TEST_API}?action=ping`;
+    // Пингуем локальный сервер (тот же, что раздаёт сайт) по маленькому Range-запросу к файлу
+    const url = `${SPEED_TEST_ORIGIN}${SPEED_TEST_FILE}`;
     // прогрев соединения
-    try { await fetch(`${url}&_=warm`, { cache: "no-store" }); } catch { /* ignore */ }
+    try { await fetch(`${url}?_=warm`, { cache: "no-store", headers: { Range: "bytes=0-0" } }); } catch { /* ignore */ }
     for (let i = 0; i < 6; i++) {
       const t0 = performance.now();
       try {
-        await fetch(`${url}&_=${Date.now()}_${i}`, { cache: "no-store" });
+        await fetch(`${url}?_=${Date.now()}_${i}`, { cache: "no-store", headers: { Range: "bytes=0-0" } });
       } catch { /* ignore */ }
       times.push(performance.now() - t0);
     }
@@ -53,23 +54,26 @@ export function useSpeedTest() {
     return Math.round(mid.reduce((s, v) => s + v, 0) / mid.length);
   }
 
-  // Скачивает один чанк заданного размера (МБ) через backend, возвращает реально принятые по сети байты.
-  // Данные приходят в base64 (Cloud Function), поэтому фактический сетевой объём ≈ payload × 4/3.
-  async function fetchChunk(sizeMb: number, tag: string): Promise<number> {
-    const res = await fetch(`${SPEED_TEST_API}?action=download&size=${sizeMb}&_=${tag}`, {
+  // Скачивает часть файла speedtest.bin с локального сервера. Range-запрос со случайным
+  // смещением, чтобы обойти кэш и не всегда качать одно и то же начало.
+  async function fetchRange(chunkBytes: number): Promise<number> {
+    const maxStart = Math.max(0, SPEED_TEST_FILE_BYTES - chunkBytes);
+    const start = Math.floor(Math.random() * maxStart);
+    const end = start + chunkBytes - 1;
+    const res = await fetch(`${SPEED_TEST_ORIGIN}${SPEED_TEST_FILE}?_=${Date.now()}_${Math.random()}`, {
       cache: "no-store",
+      headers: { Range: `bytes=${start}-${end}` },
       signal: abortRef.current?.signal,
     });
     const buf = await res.arrayBuffer();
-    // buf — уже декодированный payload; по сети прошло примерно в 4/3 больше (base64)
-    return Math.round(buf.byteLength * (4 / 3));
+    return buf.byteLength;
   }
 
   async function measureDownload(onProgress: (mbps: number) => void): Promise<number> {
-    const PARALLEL = 8;       // параллельные потоки — нужны чтобы насытить широкий канал
-    const CHUNK_MB = 2;       // размер одного чанка (лимит ответа Cloud Function)
-    const MAX_SECONDS = 8;    // длительность замера
-    const WARMUP_MS = 1000;   // прогрев (TCP slow start) — не учитываем
+    const PARALLEL = 6;                    // параллельные потоки
+    const CHUNK = 2 * 1024 * 1024;         // 2 МБ на Range-запрос
+    const MAX_SECONDS = 8;                 // длительность замера
+    const WARMUP_MS = 1000;                // прогрев (TCP slow start) — не учитываем
 
     let totalBytes = 0;
     let counted = false;
@@ -77,16 +81,15 @@ export function useSpeedTest() {
     let countBytes = 0;
     const t0 = performance.now();
     let stop = false;
-    let seq = 0;
 
     const worker = async () => {
       while (!stop) {
-        const now = performance.now();
-        if ((now - t0) >= MAX_SECONDS * 1000) break;
+        if ((performance.now() - t0) >= MAX_SECONDS * 1000) break;
         let bytes = 0;
         try {
-          bytes = await fetchChunk(CHUNK_MB, `${Date.now()}_${seq++}`);
+          bytes = await fetchRange(CHUNK);
         } catch { break; }
+        if (!bytes) break;
         const elapsedMs = performance.now() - t0;
         totalBytes += bytes;
         // Начинаем считать только после прогрева
@@ -107,7 +110,6 @@ export function useSpeedTest() {
     };
 
     const workers = Array.from({ length: PARALLEL }, () => worker());
-    // Останавливаем по таймауту
     const timer = setTimeout(() => { stop = true; }, MAX_SECONDS * 1000);
     await Promise.all(workers);
     clearTimeout(timer);
