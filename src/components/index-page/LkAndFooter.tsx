@@ -25,8 +25,12 @@ export default function LkAndFooter() {
       toast.error("Укажите имя и телефон");
       return;
     }
-    if (!ticket.city.trim() || !ticket.address.trim()) {
-      toast.error("Укажите населённый пункт и адрес");
+    if (!ticket.city.trim()) {
+      toast.error("Укажите населённый пункт");
+      return;
+    }
+    if (!ticket.address.trim()) {
+      toast.error("Укажите адрес установки");
       return;
     }
     setSending(true);
@@ -87,19 +91,19 @@ export default function LkAndFooter() {
               <h3 className="font-montserrat font-bold text-xl mb-6 text-white">Оставить заявку</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs text-white/40 mb-1.5 block">Ваше имя</label>
+                  <label className="text-xs text-white/40 mb-1.5 block">Ваше имя <span className="text-[#00d4ff]">*</span></label>
                   <input type="text" value={ticket.name} onChange={(e) => setTicket({ ...ticket, name: e.target.value })} placeholder="Алексей Смирнов" className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40 mb-1.5 block">Телефон</label>
+                  <label className="text-xs text-white/40 mb-1.5 block">Телефон <span className="text-[#00d4ff]">*</span></label>
                   <input type="tel" value={ticket.phone} onChange={(e) => setTicket({ ...ticket, phone: e.target.value })} placeholder="+7 (999) 000-00-00" className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40 mb-1.5 block">Населённый пункт</label>
+                  <label className="text-xs text-white/40 mb-1.5 block">Населённый пункт <span className="text-[#00d4ff]">*</span></label>
                   <input type="text" value={ticket.city} onChange={(e) => setTicket({ ...ticket, city: e.target.value })} placeholder="Напр. Оазис, Натухай, Энем" className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40 mb-1.5 block">Адрес установки</label>
+                  <label className="text-xs text-white/40 mb-1.5 block">Адрес установки <span className="text-[#00d4ff]">*</span></label>
                   <input type="text" value={ticket.address} onChange={(e) => setTicket({ ...ticket, address: e.target.value })} placeholder="Улица, дом, квартира" className="w-full px-4 py-3 rounded-xl text-white text-sm placeholder-white/20 focus:outline-none transition-colors" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }} />
                 </div>
                 <div>
