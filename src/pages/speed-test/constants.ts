@@ -1,4 +1,5 @@
 export const SPEED_TEST_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
+export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 
 export type Phase = "idle" | "ping" | "download" | "upload" | "done";
 export interface Results { ping: number | null; download: number | null; upload: number | null; }

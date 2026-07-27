@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { SPEED_TEST_ORIGIN, Phase, Results, HistoryEntry } from "./constants";
+import { SPEED_TEST_API, Phase, Results, HistoryEntry } from "./constants";
 
 export function useSpeedTest() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -35,91 +35,142 @@ export function useSpeedTest() {
     animRef.current = requestAnimationFrame(tick);
   }
 
-  async function findDownloadAsset(): Promise<string> {
-    // Ищем самый крупный статик-ассет текущего билда для честного замера
-    try {
-      const res = await fetch(`${SPEED_TEST_ORIGIN}/`, { cache: "no-store" });
-      const html = await res.text();
-      const matches = Array.from(html.matchAll(/["'](\/assets\/[^"']+\.(?:js|css))["']/g))
-        .map(m => m[1]);
-      if (matches.length > 0) {
-        // берём первый js-бандл (обычно самый большой)
-        const js = matches.find(m => m.endsWith(".js")) || matches[0];
-        return `${SPEED_TEST_ORIGIN}${js}`;
-      }
-    } catch { /* ignore */ }
-    return `${SPEED_TEST_ORIGIN}/`;
-  }
-
   async function measurePing(): Promise<number> {
     const times: number[] = [];
-    const url = `${SPEED_TEST_ORIGIN}/favicon.ico`;
-    for (let i = 0; i < 5; i++) {
+    const url = `${SPEED_TEST_API}?action=ping`;
+    // прогрев соединения
+    try { await fetch(`${url}&_=warm`, { cache: "no-store" }); } catch { /* ignore */ }
+    for (let i = 0; i < 6; i++) {
       const t0 = performance.now();
-      await fetch(`${url}?_=${Date.now()}_${i}`, { cache: "no-store", method: "GET" });
+      try {
+        await fetch(`${url}&_=${Date.now()}_${i}`, { cache: "no-store" });
+      } catch { /* ignore */ }
       times.push(performance.now() - t0);
     }
     times.sort((a, b) => a - b);
-    // отбрасываем первый (самый медленный, тёплый TCP) и последний
-    return Math.round(times.slice(1, 4).reduce((s, v) => s + v, 0) / 3);
+    // берём медианные значения (без крайних выбросов)
+    const mid = times.slice(1, 4);
+    return Math.round(mid.reduce((s, v) => s + v, 0) / mid.length);
   }
 
-  async function measureDownload(): Promise<number> {
-    // Качаем крупный ассет текущего билда повторно, пока не наберём ~4.5 сек либо 32МБ
-    const assetUrl = await findDownloadAsset();
-    const MAX_BYTES = 32 * 1024 * 1024;
-    const MAX_SECONDS = 4.5;
+  // Скачивает один чанк заданного размера (МБ) через backend, возвращает реально принятые по сети байты.
+  // Данные приходят в base64 (Cloud Function), поэтому фактический сетевой объём ≈ payload × 4/3.
+  async function fetchChunk(sizeMb: number, tag: string): Promise<number> {
+    const res = await fetch(`${SPEED_TEST_API}?action=download&size=${sizeMb}&_=${tag}`, {
+      cache: "no-store",
+      signal: abortRef.current?.signal,
+    });
+    const buf = await res.arrayBuffer();
+    // buf — уже декодированный payload; по сети прошло примерно в 4/3 больше (base64)
+    return Math.round(buf.byteLength * (4 / 3));
+  }
+
+  async function measureDownload(onProgress: (mbps: number) => void): Promise<number> {
+    const PARALLEL = 8;       // параллельные потоки — нужны чтобы насытить широкий канал
+    const CHUNK_MB = 2;       // размер одного чанка (лимит ответа Cloud Function)
+    const MAX_SECONDS = 8;    // длительность замера
+    const WARMUP_MS = 1000;   // прогрев (TCP slow start) — не учитываем
 
     let totalBytes = 0;
+    let counted = false;
+    let countStart = 0;
+    let countBytes = 0;
     const t0 = performance.now();
-    let i = 0;
+    let stop = false;
+    let seq = 0;
 
-    while (true) {
-      const res = await fetch(`${assetUrl}?_=${Date.now()}_${i++}`, {
-        cache: "no-store",
-        signal: abortRef.current?.signal,
-      });
-      const buf = await res.arrayBuffer();
-      totalBytes += buf.byteLength;
-      const elapsed = (performance.now() - t0) / 1000;
-      if (totalBytes >= MAX_BYTES || elapsed >= MAX_SECONDS) break;
-      if (i > 50) break; // safety
-    }
+    const worker = async () => {
+      while (!stop) {
+        const now = performance.now();
+        if ((now - t0) >= MAX_SECONDS * 1000) break;
+        let bytes = 0;
+        try {
+          bytes = await fetchChunk(CHUNK_MB, `${Date.now()}_${seq++}`);
+        } catch { break; }
+        const elapsedMs = performance.now() - t0;
+        totalBytes += bytes;
+        // Начинаем считать только после прогрева
+        if (!counted && elapsedMs >= WARMUP_MS) {
+          counted = true;
+          countStart = performance.now();
+          countBytes = 0;
+        } else if (counted) {
+          countBytes += bytes;
+        }
+        // Реалтайм-скорость для стрелки
+        const measSec = (performance.now() - (counted ? countStart : t0)) / 1000;
+        const measBytes = counted ? countBytes : totalBytes;
+        if (measSec > 0.2) {
+          onProgress((measBytes * 8) / measSec / 1_000_000);
+        }
+      }
+    };
 
-    const elapsed = (performance.now() - t0) / 1000;
-    const bits = totalBytes * 8;
-    const mbps = (bits / elapsed) / 1_000_000;
+    const workers = Array.from({ length: PARALLEL }, () => worker());
+    // Останавливаем по таймауту
+    const timer = setTimeout(() => { stop = true; }, MAX_SECONDS * 1000);
+    await Promise.all(workers);
+    clearTimeout(timer);
+
+    const measSec = (performance.now() - (counted ? countStart : t0)) / 1000;
+    const measBytes = counted ? countBytes : totalBytes;
+    const mbps = (measBytes * 8) / measSec / 1_000_000;
     return parseFloat(mbps.toFixed(1));
   }
 
-  async function measureUpload(): Promise<number> {
-    // Статик-хостинг не принимает POST, поэтому оцениваем отдачу через серию HEAD/GET
-    // с замером времени round-trip на малых ассетах текущего сервера
-    const url = `${SPEED_TEST_ORIGIN}/favicon.ico`;
-    const CHUNK = 256 * 1024;
-    const data = new Uint8Array(CHUNK);
-    crypto.getRandomValues(data.slice(0, Math.min(65536, data.length)));
+  async function measureUpload(onProgress: (mbps: number) => void): Promise<number> {
+    const PARALLEL = 4;
+    const CHUNK = 2 * 1024 * 1024; // 2 МБ полезной нагрузки на запрос
+    const MAX_SECONDS = 8;
+    const WARMUP_MS = 800;
 
-    const times: number[] = [];
-    const iterations = 8;
-    for (let i = 0; i < iterations; i++) {
-      const t0 = performance.now();
-      try {
-        await fetch(`${url}?u=${Date.now()}_${i}`, {
-          method: "POST",
-          body: data,
-          cache: "no-store",
-          signal: abortRef.current?.signal,
-        });
-      } catch { /* method может не поддерживаться — считаем время запроса всё равно */ }
-      times.push(performance.now() - t0);
-    }
-    // Отбрасываем крайние, считаем среднее
-    times.sort((a, b) => a - b);
-    const trimmed = times.slice(1, -1);
-    const avgMs = trimmed.reduce((s, v) => s + v, 0) / trimmed.length;
-    const bits = CHUNK * 8;
-    const mbps = (bits / (avgMs / 1000)) / 1_000_000;
+    const payload = new Uint8Array(CHUNK);
+    crypto.getRandomValues(payload.slice(0, Math.min(65536, CHUNK)));
+
+    let counted = false;
+    let countStart = 0;
+    let countBytes = 0;
+    let totalBytes = 0;
+    const t0 = performance.now();
+    let stop = false;
+    let seq = 0;
+
+    const worker = async () => {
+      while (!stop) {
+        if ((performance.now() - t0) >= MAX_SECONDS * 1000) break;
+        try {
+          await fetch(`${SPEED_TEST_API}?action=upload&_=${Date.now()}_${seq++}`, {
+            method: "POST",
+            body: payload,
+            cache: "no-store",
+            signal: abortRef.current?.signal,
+          });
+        } catch { break; }
+        const elapsedMs = performance.now() - t0;
+        totalBytes += CHUNK;
+        if (!counted && elapsedMs >= WARMUP_MS) {
+          counted = true;
+          countStart = performance.now();
+          countBytes = 0;
+        } else if (counted) {
+          countBytes += CHUNK;
+        }
+        const measSec = (performance.now() - (counted ? countStart : t0)) / 1000;
+        const measBytes = counted ? countBytes : totalBytes;
+        if (measSec > 0.2) {
+          onProgress((measBytes * 8) / measSec / 1_000_000);
+        }
+      }
+    };
+
+    const workers = Array.from({ length: PARALLEL }, () => worker());
+    const timer = setTimeout(() => { stop = true; }, MAX_SECONDS * 1000);
+    await Promise.all(workers);
+    clearTimeout(timer);
+
+    const measSec = (performance.now() - (counted ? countStart : t0)) / 1000;
+    const measBytes = counted ? countBytes : totalBytes;
+    const mbps = (measBytes * 8) / measSec / 1_000_000;
     return parseFloat(mbps.toFixed(1));
   }
 
@@ -138,23 +189,21 @@ export function useSpeedTest() {
       const pingVal = await measurePing();
       setResults(r => ({ ...r, ping: pingVal }));
 
-      // 2. Download
+      // 2. Download — реальная скорость выводится на стрелку в реальном времени (smoothed)
       setPhase("download");
       currentValueRef.current = 0;
       setCurrentValue(0);
 
-      // Запускаем анимацию "ожидания" пока качается
-      let dlVal = 0;
-      const dlPromise = measureDownload().then(v => { dlVal = v; });
+      const smooth = (next: number) => {
+        // экспоненциальное сглаживание, чтобы стрелка не дёргалась
+        const prev = currentValueRef.current;
+        const val = prev + (next - prev) * 0.35;
+        currentValueRef.current = val;
+        setCurrentValue(val);
+      };
 
-      // Анимируем стрелку пока качается (~4.5 сек), потом ждём реальный результат
-      await new Promise<void>(resolve => {
-        animateTo(300, 4500, resolve);
-      });
-      await dlPromise;
-
-      // Финальная анимация к реальному значению
-      await new Promise<void>(resolve => animateTo(dlVal, 600, resolve));
+      const dlVal = await measureDownload(smooth);
+      await new Promise<void>(resolve => animateTo(dlVal, 500, resolve));
       setResults(r => ({ ...r, download: dlVal }));
 
       // 3. Upload
@@ -162,15 +211,8 @@ export function useSpeedTest() {
       currentValueRef.current = 0;
       setCurrentValue(0);
 
-      let ulVal = 0;
-      const ulPromise = measureUpload().then(v => { ulVal = v; });
-
-      await new Promise<void>(resolve => {
-        animateTo(80, 4500, resolve);
-      });
-      await ulPromise;
-
-      await new Promise<void>(resolve => animateTo(ulVal, 600, resolve));
+      const ulVal = await measureUpload(smooth);
+      await new Promise<void>(resolve => animateTo(ulVal, 500, resolve));
       setResults(r => ({ ...r, upload: ulVal }));
 
       // Сохраняем в историю
