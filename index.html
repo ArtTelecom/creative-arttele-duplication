@@ -10,6 +10,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800;900&family=Montserrat:wght@400;600;700;800;900&display=swap" rel="stylesheet">
     <meta name="author" content="poehali.dev"/>
     <link rel="icon" type="image/jpg" href="https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/files/favicon-1775995140200.jpg">
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#0b0e17">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Тест скорости">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <meta property="og:title" content="АртТелеком Юг — Быстрый интернет для дома и бизнеса">
     <meta property="og:description" content="АртТелеком Юг — надёжный интернет-провайдер. Скорость до 2.5 Гбит/с, выгодные тарифы, поддержка 24/7">
     <meta property="og:image" content="https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/bucket/12b807ee-9761-4870-82b8-e4693b7823b1.png">
@@ -34,6 +43,15 @@
 <body>
 <div id="root"></div>
 <script type="module" src="/src/main.tsx"></script>
+
+<!-- Регистрация Service Worker (PWA) -->
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function () {});
+    });
+  }
+</script>
 
 <!-- Yandex.Metrika counter -->
 <script type="text/javascript">

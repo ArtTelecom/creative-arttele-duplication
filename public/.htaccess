@@ -65,3 +65,16 @@
 <IfModule mod_reqtimeout.c>
     RequestReadTimeout body=60
 </IfModule>
+
+# PWA: правильные типы и отсутствие агрессивного кеша для manifest и service worker
+<IfModule mod_headers.c>
+    <Files "manifest.webmanifest">
+        Header set Content-Type "application/manifest+json"
+        Header set Cache-Control "no-cache"
+    </Files>
+    <Files "sw.js">
+        Header set Content-Type "application/javascript"
+        Header set Cache-Control "no-cache"
+        Header set Service-Worker-Allowed "/"
+    </Files>
+</IfModule>
