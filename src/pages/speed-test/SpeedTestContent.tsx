@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import Speedometer from "./Speedometer";
-import { Phase, Results, HistoryEntry, SCALE_MAX, UPLOAD_MAX, progressColor } from "./constants";
+import { Phase, Results, HistoryEntry, SCALE_MAX, UPLOAD_MAX, ST_DOWNLOAD, ST_UPLOAD } from "./constants";
 
 interface SpeedTestContentProps {
   phase: Phase;
@@ -29,100 +29,88 @@ export default function SpeedTestContent({
 }: SpeedTestContentProps) {
   const isRunning = phase === "ping" || phase === "download" || phase === "upload";
   const gaugeMax = phase === "upload" ? UPLOAD_MAX : SCALE_MAX;
-   
-  const _needleColor = progressColor(Math.min(currentValue / gaugeMax, 1));
+
+  const fmt = (v: number | null) =>
+    v === null ? "—" : v >= 1000 ? (v / 1000).toFixed(2) : String(v);
+
+  const metrics = [
+    { label: "PING", unit: "ms", value: results.ping === null ? "—" : String(results.ping), icon: "Activity", color: "#f5c400", active: phase === "ping" },
+    { label: "DOWNLOAD", unit: results.download && results.download >= 1000 ? "Gbps" : "Mbps", value: fmt(results.download), icon: "ArrowDown", color: ST_DOWNLOAD, active: phase === "download" },
+    { label: "UPLOAD", unit: "Mbps", value: fmt(results.upload), icon: "ArrowUp", color: ST_UPLOAD, active: phase === "upload" },
+  ];
 
   return (
     <div className="max-w-xl mx-auto">
 
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold mb-4 tracking-wider uppercase" style={{ borderColor: "rgba(0,212,255,0.3)", background: "rgba(0,212,255,0.05)", color: "var(--neon-blue)" }}>
-          <Icon name="Gauge" size={12} /> Замер скорости
-        </div>
-        <h1 className="font-montserrat font-black text-4xl md:text-5xl mb-2">
+      <div className="text-center mb-6">
+        <h1 className="font-montserrat font-black text-3xl md:text-4xl mb-1">
           Тест скорости <span className="gradient-text-blue">интернета</span>
         </h1>
         <p className="text-white/40 text-sm">Реальная скорость вашего подключения</p>
       </div>
 
-      <div className="glass-card rounded-3xl border border-white/5 px-6 pt-8 pb-6 flex flex-col items-center">
+      <div className="glass-card rounded-3xl border border-white/5 px-6 pt-6 pb-7 flex flex-col items-center">
 
-        {/* Ping indicator */}
-        <div className="flex items-center gap-2 mb-2 h-6">
-          {results.ping !== null && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
-              style={{ background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.3)", color: "#a855f7" }}>
-              <Icon name="Activity" size={11} />
-              Пинг: {results.ping} мс
-            </div>
-          )}
-          {phase === "ping" && (
-            <div className="flex items-center gap-1.5 text-xs text-white/40">
-              <div className="w-3 h-3 rounded-full border border-purple-400 border-t-transparent animate-spin" />
-              измеряю пинг...
-            </div>
-          )}
-        </div>
-
-        {/* Speedometer */}
-        <div className="w-full">
-          <Speedometer value={currentValue} max={gaugeMax} phase={phase} />
-        </div>
-
-        {/* Results row */}
-        <div className="grid grid-cols-2 gap-3 w-full mt-1 mb-6">
-          {[
-            { label: "Загрузка", value: results.download, icon: "Download", color: "#00d4ff", active: phase === "download" },
-            { label: "Отдача", value: results.upload, icon: "Upload", color: "#00f57a", active: phase === "upload" },
-          ].map((item) => (
-            <div key={item.label} className="rounded-2xl p-4 text-center transition-all duration-300"
-              style={{
-                background: item.active ? `${item.color}12` : "rgba(255,255,255,0.03)",
-                border: `1px solid ${item.active ? item.color + "44" : "rgba(255,255,255,0.06)"}`,
-              }}>
-              <div className="flex items-center justify-center gap-1 mb-1">
-                <Icon name={item.icon as "Download"} size={13} style={{ color: item.value !== null ? item.color : "rgba(255,255,255,0.2)" }} />
-                <span className="text-white/40 text-xs">{item.label}</span>
+        {/* Metrics row — Speedtest style */}
+        <div className="grid grid-cols-3 gap-2 w-full mb-2">
+          {metrics.map((m) => (
+            <div key={m.label} className="flex flex-col items-center py-2 rounded-xl transition-all duration-300"
+              style={{ background: m.active ? `${m.color}14` : "transparent" }}>
+              <div className="flex items-center gap-1 mb-1">
+                <Icon name={m.icon as "Activity"} size={12} style={{ color: m.color }} />
+                <span className="text-[10px] font-bold tracking-widest" style={{ color: m.color }}>{m.label}</span>
               </div>
-              <div className="font-montserrat font-black text-2xl" style={{ color: item.value !== null ? item.color : "rgba(255,255,255,0.15)" }}>
-                {item.value !== null
-                  ? item.value >= 1000
-                    ? <>{(item.value / 1000).toFixed(2)} <span className="text-sm font-normal text-white/40">Гбит/с</span></>
-                    : <>{item.value} <span className="text-sm font-normal text-white/40">Мбит/с</span></>
-                  : "—"}
+              <div className="font-montserrat font-black text-xl leading-none text-white">
+                {m.value}
               </div>
+              <div className="text-white/30 text-[10px] mt-0.5">{m.unit}</div>
             </div>
           ))}
         </div>
 
+        {/* Speedometer with centered GO button */}
+        <div className="relative w-full flex items-center justify-center">
+          <Speedometer value={currentValue} max={gaugeMax} phase={phase} />
+
+          {(phase === "idle" || phase === "done") && (
+            <button
+              onClick={runTest}
+              className="absolute rounded-full font-montserrat font-black flex items-center justify-center transition-all duration-300 hover:scale-105"
+              style={{
+                width: 104, height: 104,
+                border: `2px solid ${ST_DOWNLOAD}`,
+                color: ST_DOWNLOAD,
+                background: "rgba(0,191,255,0.06)",
+                fontSize: phase === "done" ? 20 : 30,
+                letterSpacing: 1,
+                boxShadow: `0 0 30px rgba(0,191,255,0.35)`,
+              }}
+            >
+              {phase === "done" ? "↻" : "GO"}
+            </button>
+          )}
+        </div>
+
         {/* Quality badge */}
         {phase === "done" && results.download !== null && (
-          <div className="mb-5 px-5 py-2.5 rounded-full text-sm font-semibold"
+          <div className="mt-3 mb-1 px-5 py-2.5 rounded-full text-sm font-semibold"
             style={{ background: `${quality(results.download).color}18`, border: `1px solid ${quality(results.download).color}44`, color: quality(results.download).color }}>
             {quality(results.download).text} — {quality(results.download).hint}
           </div>
         )}
 
         {phase === "done" && results.download !== null && results.download < 100 && (
-          <Link to="/tariffs" className="mb-4 text-xs text-white/40 hover:text-[#00d4ff] transition-colors underline underline-offset-2">
+          <Link to="/tariffs" className="mt-2 text-xs text-white/40 hover:text-[#00d4ff] transition-colors underline underline-offset-2">
             Посмотреть тарифы с высокой скоростью →
           </Link>
         )}
 
-        {/* Button */}
-        <button
-          onClick={runTest}
-          disabled={isRunning}
-          className="px-12 py-4 rounded-2xl font-montserrat font-black text-lg transition-all duration-300"
-          style={{
-            background: isRunning ? "rgba(255,255,255,0.04)" : "linear-gradient(135deg, var(--neon-blue), var(--neon-green))",
-            color: isRunning ? "rgba(255,255,255,0.2)" : "#0b0e17",
-            cursor: isRunning ? "not-allowed" : "pointer",
-            boxShadow: isRunning ? "none" : "0 0 24px rgba(0,212,255,0.25)",
-          }}
-        >
-          {phase === "idle" ? "Начать тест" : phase === "done" ? "Повторить" : "Идёт тест..."}
-        </button>
+        {isRunning && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-white/40">
+            <div className="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: `${ST_DOWNLOAD}`, borderTopColor: "transparent" }} />
+            {phase === "ping" ? "измеряю пинг…" : phase === "download" ? "измеряю загрузку…" : "измеряю отдачу…"}
+          </div>
+        )}
       </div>
 
       {/* Info row */}

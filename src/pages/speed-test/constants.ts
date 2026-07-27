@@ -4,9 +4,9 @@ export type Phase = "idle" | "ping" | "download" | "upload" | "done";
 export interface Results { ping: number | null; download: number | null; upload: number | null; }
 export interface HistoryEntry { ping: number; download: number; upload: number; time: string; }
 
-export const CX = 160, CY = 170, R = 130;
-export const START_ANGLE = 180; // left
-export const SWEEP = 180;       // half circle, left → right
+export const CX = 160, CY = 160, R = 130;
+export const START_ANGLE = 135; // Speedtest-style 270° gauge (bottom-left)
+export const SWEEP = 270;       // full 270° sweep, clockwise to bottom-right
 
 export function degToRad(d: number) { return (d * Math.PI) / 180; }
 
@@ -25,24 +25,16 @@ export function arcPath(startDeg: number, endDeg: number, r: number) {
 export const SCALE_MAX = 1000;
 export const UPLOAD_MAX = 400;
 
-// Color interpolation: green → yellow → red by progress
-export function progressColor(p: number): string {
-  // 0 = green (#00f57a), 0.5 = yellow (#f5c400), 1 = red (#f53000)
-  const clamp = Math.min(1, Math.max(0, p));
-  let r: number, g: number, b: number;
-  if (clamp < 0.5) {
-    const t = clamp / 0.5;
-    r = Math.round(0 + t * (245 - 0));
-    g = Math.round(245 + t * (196 - 245));
-    b = Math.round(122 + t * (0 - 122));
-  } else {
-    const t = (clamp - 0.5) / 0.5;
-    r = Math.round(245 + t * (245 - 245));
-    g = Math.round(196 + t * (48 - 196));
-    b = Math.round(0);
-  }
-  return `rgb(${r},${g},${b})`;
+// Speedtest.net-style palette
+export const ST_DOWNLOAD = "#00bfff"; // bright blue (download)
+export const ST_UPLOAD = "#8a2be2";   // violet (upload)
+export const ST_TRACK = "rgba(255,255,255,0.06)";
+
+// Speedtest uses a single accent color per phase (не green→red).
+// Keep signature for backward compat but return the phase accent.
+export function progressColor(_p: number): string {
+  return ST_DOWNLOAD;
 }
 
-export const DL_LABELS = [0, 200, 400, 600, 800, 1000];
-export const UL_LABELS = [0, 80, 160, 240, 320, 400];
+export const DL_LABELS = [0, 100, 250, 500, 750, 1000];
+export const UL_LABELS = [0, 50, 100, 200, 300, 400];
