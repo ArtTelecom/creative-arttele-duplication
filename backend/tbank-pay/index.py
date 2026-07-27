@@ -241,8 +241,8 @@ def _credit_via_kassa(login: str, amount: float, order_id: str) -> dict:
 def _notify_telegram(login: str, amount: float, order_id: str, credit_result: dict) -> None:
     """Отправляет уведомление об успешной оплате в Telegram-канал.
     Не влияет на приём платежа: любые ошибки только логируются."""
-    token = os.environ.get("TELEGRAM_PAY_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_PAY_CHAT_ID", "")
+    token = os.environ.get("TELEGRAM_PAY_BOT_TOKEN", "") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_PAY_CHAT_ID", "") or "-1003901236056"
     if not token or not chat_id:
         print("[TBANK] telegram notify skipped: token/chat_id not set")
         return
@@ -266,8 +266,10 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
-        print("[TBANK] telegram notify sent")
+            body = resp.read().decode("utf-8", "ignore")
+        print(f"[TBANK] telegram notify sent: {body[:200]}")
+    except urllib.error.HTTPError as e:
+        print(f"[TBANK] telegram notify HTTP {e.code}: {e.read().decode('utf-8','ignore')[:200]}")
     except Exception as e:
         print(f"[TBANK] telegram notify failed: {e}")
 
