@@ -95,6 +95,10 @@ def handler(event, context):
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'status': 'ok'})}
     elif action == 'probe_pay':
         return handle_probe_pay(event, cors)
+    elif action == 'test_credit':
+        p = event.get('queryStringParameters') or {}
+        res = kassa_add_cash(p.get('login', ''), p.get('amount', '0'), 'ТЕСТ онлайн-оплаты')
+        return {'statusCode': 200, 'headers': cors, 'body': json.dumps(res, ensure_ascii=False)}
     else:
         return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'Unknown action'})}
 
@@ -183,6 +187,82 @@ def kassa_session():
     return s
 
 
+def kassa_add_cash(login, amount, comment=''):
+    """Вносит платёж абоненту через кассу MikroBill (addcash.php), как это делает кассир вручную.
+
+    Возвращает dict: {'ok': bool, 'error'?: str, 'response'?: str, 'balance_after'?: str}.
+    """
+    login = str(login).strip()
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return {'ok': False, 'error': 'bad amount'}
+    if not login or amount <= 0:
+        return {'ok': False, 'error': 'login/amount required'}
+
+    s = kassa_session()
+    user = kassa_find_user(s, login)
+    if not user or not user.get('uid'):
+        return {'ok': False, 'error': f'user {login} not found'}
+    uid = user['uid']
+    balance_before = user.get('balance', '')
+
+    # Проверяем разрешение на оплату
+    try:
+        itp = smart_text(s.get(
+            KASSA_URL + '/api.php?action=IT_POSSIBLE_TO_PAY&value=' + requests.utils.quote(uid),
+            timeout=10)).strip()
+    except Exception as e:
+        return {'ok': False, 'error': f'IT_POSSIBLE_TO_PAY failed: {e}'}
+    if itp != '1':
+        return {'ok': False, 'error': f'payment not allowed (IT_POSSIBLE_TO_PAY={itp})'}
+
+    cash_str = f'{amount:.2f}'.rstrip('0').rstrip('.') if amount % 1 else str(int(amount))
+    params = {
+        'client': login,
+        'guid': uid,
+        'cash': cash_str,
+        'days': '',
+        'nosms': 'true',
+        'printreceipt': 'false',
+        'comment': comment or 'Онлайн-оплата',
+        'zeroballance': 'false',
+        'startonfirst': 'false',
+        'fiscalize': 'false',
+    }
+    try:
+        r = s.get(KASSA_URL + '/addcash.php', params=params, timeout=15)
+        resp_text = smart_text(r)
+    except Exception as e:
+        return {'ok': False, 'error': f'addcash request failed: {e}'}
+
+    # Перечитываем баланс — главный критерий успеха
+    balance_after = ''
+    try:
+        u2 = kassa_find_user(s, login)
+        balance_after = (u2 or {}).get('balance', '')
+    except Exception:
+        pass
+
+    ok = False
+    try:
+        if balance_before != '' and balance_after != '':
+            ok = abs((float(balance_after) - float(balance_before)) - amount) < 0.01
+    except (TypeError, ValueError):
+        ok = False
+    if not ok:
+        low = resp_text.lower()
+        ok = ('chaiserlogin' not in low) and (r.status_code == 200) and ('error' not in low) and ('ошибка' not in low)
+
+    return {
+        'ok': ok,
+        'status': r.status_code,
+        'balance_before': balance_before,
+        'balance_after': balance_after,
+        'response': resp_text[:300],
+    }
+
+
 def handle_probe_pay(event, cors):
     """Разведка: как касса MikroBill принимает платёж. Логинится кассиром, ищет
     в карточке абонента формы/ссылки/поля для внесения оплаты. Ничего не зачисляет."""
@@ -229,6 +309,29 @@ def handle_probe_pay(event, cors):
             'has_word_platezh': 'платеж' in low or 'платёж' in low or 'пополн' in low,
         })
 
+    # Полный JS главной страницы кассы (там форма cash + функция отправки платежа)
+    try:
+        ri = s.get(KASSA_URL + '/index.php', timeout=12)
+        ihtml = smart_text(ri)
+        # вырезаем функции, где есть cash/client/pay/money/addcash
+        pay_funcs = []
+        for m in re.finditer(r'function\s+\w+\s*\([^)]*\)\s*\{', ihtml):
+            start = m.start()
+            block = ihtml[start:start + 1200]
+            low = block.lower()
+            if any(k in low for k in ['cash', 'addcash', 'plata', 'money', 'popoln', 'client.value', 'onlymoney']):
+                pay_funcs.append(block.replace('\t', ' '))
+        result['index_pay_funcs'] = pay_funcs[:12]
+        # точный кусок формирования addcash URL
+        ai = ihtml.find('addcash.php?client=')
+        if ai >= 0:
+            result['addcash_url_build'] = ihtml[ai - 20:ai + 500].replace('\t', ' ')
+        # прямые упоминания addcash.php / usrstat с параметрами оплаты
+        result['index_pay_urls'] = list(dict.fromkeys(
+            re.findall(r'["\']([^"\']*(?:addcash|usrstat|api\.php|api2)[^"\']*)["\']', ihtml)))[:40]
+    except Exception as e:
+        result['index_js_error'] = str(e)[:200]
+
     # Разбор addcash.php — форма внесения платежа кассиром
     if login:
         try:
@@ -237,14 +340,37 @@ def handle_probe_pay(event, cors):
             inputs = re.findall(r'<(?:input|select|textarea)[^>]*name\s*=\s*["\']([^"\']+)["\'][^>]*>', html, re.I)
             form_actions = re.findall(r'<form[^>]*action\s*=\s*["\']([^"\']*)["\']', html, re.I)
             hidden = re.findall(r'<input[^>]*type\s*=\s*["\']hidden["\'][^>]*>', html, re.I)
+            # Ищем JS-логику отправки платежа
+            js_calls = re.findall(r'(GetHTTP2?\s*\([^)]*\)|\.php\?action=[A-Z_]+[^"\'\s)]*|action=(?:ADD_?CASH|CASH|PAY|SET_?PAY|ADDPAY|PLATA)[^"\'\s)]*)', html, re.I)
+            # блоки функций, где встречается cash/money/pay
+            func_ctx = []
+            for m in re.finditer(r'function\s+(\w*(?:[Cc]ash|[Pp]ay|[Mm]oney)\w*)\s*\([^)]*\)', html):
+                a = m.start()
+                func_ctx.append(html[a:a + 600].replace('\n', ' ').replace('\t', ' '))
+            # прямой поиск SavePay/AddCash и подобных
+            save_ctx = []
+            for kw in ['addcash', 'AddCash', 'SavePay', 'SaveCash', 'SetPay', 'ADD_CASH', 'action=PAY', 'onlymoney']:
+                idx = html.find(kw)
+                if idx >= 0:
+                    save_ctx.append({kw: html[max(0, idx - 100):idx + 300].replace('\n', ' ').replace('\t', ' ')})
+            # контекст вокруг ключевых слов формирования платежа
+            kw_ctx = {}
+            for kw in ['cash', 'apay', 'onlymoney', 'command_name', 'request', 'CheckSubmit', 'form_money_type', 'client.value']:
+                blocks = []
+                for m in re.finditer(re.escape(kw), html):
+                    a = m.start()
+                    blocks.append(html[max(0, a - 60):a + 160].replace('\n', ' ').replace('\t', ' '))
+                kw_ctx[kw] = blocks[:6]
             result['addcash'] = {
                 'status': r.status_code, 'len': len(html),
                 'is_login_page': 'chaiserlogin' in html.lower(),
                 'inputs': list(dict.fromkeys(inputs))[:30],
                 'form_actions': list(dict.fromkeys(form_actions))[:10],
-                'hidden_tags': hidden[:15],
-                'snippet': html[:1500],
+                'js_calls': list(dict.fromkeys(js_calls))[:40],
+                'kw_ctx': kw_ctx,
             }
+            # весь HTML addcash в отдельное поле для локального анализа
+            result['addcash_raw'] = html
         except Exception as e:
             result['addcash_error'] = str(e)[:200]
         # IT_POSSIBLE_TO_PAY
