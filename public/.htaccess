@@ -40,3 +40,28 @@
         SetEnv no-gzip 1
     </Files>
 </IfModule>
+
+# Приёмник отдачи (upload) теста скорости — увеличиваем лимиты и снимаем кеш
+<Files "upload.php">
+    <IfModule mod_headers.c>
+        Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    </IfModule>
+    # Разрешаем крупное тело запроса (до ~200 МБ) для честного замера
+    <IfModule mod_php.c>
+        php_value post_max_size 256M
+        php_value upload_max_filesize 256M
+        php_value max_input_time 60
+    </IfModule>
+    <IfModule mod_php7.c>
+        php_value post_max_size 256M
+        php_value upload_max_filesize 256M
+    </IfModule>
+    <IfModule mod_php8.c>
+        php_value post_max_size 256M
+        php_value upload_max_filesize 256M
+    </IfModule>
+</Files>
+# Лимит размера тела на уровне Apache (если модуль доступен)
+<IfModule mod_reqtimeout.c>
+    RequestReadTimeout body=60
+</IfModule>

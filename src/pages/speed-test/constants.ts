@@ -3,6 +3,8 @@ export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
 export const SPEED_TEST_FILE_BYTES = 25 * 1024 * 1024;
+// PHP-приёмник отдачи на том же локальном сервере — по нему меряем upload.
+export const SPEED_TEST_UPLOAD = "/upload.php";
 
 // Города для выбора сервера замера
 export const SPEED_TEST_CITIES = [

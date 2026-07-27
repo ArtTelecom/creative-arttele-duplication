@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { SPEED_TEST_ORIGIN, SPEED_TEST_API, SPEED_TEST_FILE, SPEED_TEST_FILE_BYTES, Phase, Results, HistoryEntry } from "./constants";
+import { SPEED_TEST_ORIGIN, SPEED_TEST_API, SPEED_TEST_FILE, SPEED_TEST_FILE_BYTES, SPEED_TEST_UPLOAD, Phase, Results, HistoryEntry } from "./constants";
 
 export function useSpeedTest() {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -120,11 +120,34 @@ export function useSpeedTest() {
     return parseFloat(mbps.toFixed(1));
   }
 
+  // Определяет URL приёмника отдачи: сначала локальный upload.php (на сервере провайдера),
+  // при его недоступности — облачная функция (запасной вариант).
+  async function resolveUploadUrl(): Promise<string> {
+    const local = `${SPEED_TEST_ORIGIN}${SPEED_TEST_UPLOAD}`;
+    try {
+      const probe = await fetch(`${local}?_=probe`, {
+        method: "POST",
+        body: new Uint8Array(1024),
+        cache: "no-store",
+      });
+      if (probe.ok) {
+        // Убеждаемся, что PHP реально исполнился (вернул JSON {"ok":true}),
+        // а не отдался как сырой текст (dev-сервер без PHP).
+        const data = await probe.json().catch(() => null);
+        if (data && data.ok === true) return local;
+      }
+    } catch { /* локальный недоступен — падаем на облако */ }
+    return `${SPEED_TEST_API}?action=upload`;
+  }
+
   async function measureUpload(onProgress: (mbps: number) => void): Promise<number> {
     const PARALLEL = 6;
     const CHUNK = 4 * 1024 * 1024; // 4 МБ полезной нагрузки на запрос
     const MAX_SECONDS = 8;
     const WARMUP_MS = 1000;
+
+    const uploadUrl = await resolveUploadUrl();
+    const sep = uploadUrl.includes("?") ? "&" : "?";
 
     // Заполняем весь буфер случайными данными порциями по 64КБ (ограничение crypto)
     const payload = new Uint8Array(CHUNK);
@@ -144,7 +167,7 @@ export function useSpeedTest() {
       while (!stop) {
         if ((performance.now() - t0) >= MAX_SECONDS * 1000) break;
         try {
-          await fetch(`${SPEED_TEST_API}?action=upload&_=${Date.now()}_${seq++}`, {
+          await fetch(`${uploadUrl}${sep}_=${Date.now()}_${seq++}`, {
             method: "POST",
             body: payload,
             cache: "no-store",
