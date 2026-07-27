@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import { toast } from "sonner";
 import funcUrls from "../../../backend/func2url.json";
+import InstallAppButton from "@/components/InstallAppButton";
 
 export default function LkAndFooter() {
   const [lkTab, setLkTab] = useState<"dashboard" | "bills" | "support">("dashboard");
@@ -85,6 +86,23 @@ export default function LkAndFooter() {
                   </div>
                 </div>
               ))}
+
+              {/* Установка приложения */}
+              <div className="glass-card rounded-2xl p-5 border border-white/5">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: "rgba(0,245,122,0.1)", color: "var(--neon-green)" }}>
+                    <Icon name="Smartphone" size={20} />
+                  </div>
+                  <div>
+                    <div className="text-white font-semibold text-sm">Приложение на телефон</div>
+                    <div className="text-white/30 text-xs">Тест скорости и личный кабинет под рукой</div>
+                  </div>
+                </div>
+                <InstallAppButton
+                  className="w-full justify-center py-3 rounded-xl text-[#0b0e17] text-sm neon-glow-btn"
+                  label="Установить приложение"
+                />
+              </div>
             </div>
 
             <div className="glass-card rounded-3xl p-8 border border-white/5">

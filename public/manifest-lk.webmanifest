@@ -1,0 +1,34 @@
+{
+  "name": "АртТелеком — Личный кабинет",
+  "short_name": "Личный кабинет",
+  "description": "Личный кабинет абонента АртТелеком: баланс, оплата, тарифы и статистика.",
+  "lang": "ru",
+  "dir": "ltr",
+  "start_url": "/login?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0e17",
+  "theme_color": "#0b0e17",
+  "categories": ["utilities", "finance"],
+  "icons": [
+    {
+      "src": "/lk-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/lk-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/lk-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
