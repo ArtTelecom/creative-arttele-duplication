@@ -63,9 +63,10 @@ export default function DashboardHeader({
         </div>
         <InstallAppButton
           bare
-          iconSize={16}
+          iconSize={18}
           helpAlign="right"
-          className="hidden sm:flex items-center gap-1.5 text-white/40 hover:text-[var(--neon-blue)] text-sm transition-colors font-normal"
+          className="flex items-center gap-1.5 text-white/40 hover:text-[var(--neon-blue)] text-sm transition-colors font-normal"
+          labelClassName="hidden sm:inline"
           label="Приложение"
         />
         <button

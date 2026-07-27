@@ -9,6 +9,7 @@ interface BeforeInstallPromptEvent extends Event {
 interface InstallAppButtonProps {
   className?: string;
   label?: string;
+  labelClassName?: string;
   style?: React.CSSProperties;
   bare?: boolean;        // без собственного градиента/обёртки (для встраивания в шапку и т.п.)
   iconSize?: number;
@@ -18,6 +19,7 @@ interface InstallAppButtonProps {
 export default function InstallAppButton({
   className = "",
   label = "Установить приложение",
+  labelClassName = "",
   style,
   bare = false,
   iconSize = 18,
@@ -73,7 +75,7 @@ export default function InstallAppButton({
         style={bare ? style : { background: "linear-gradient(135deg, var(--neon-blue), var(--neon-green))", ...style }}
       >
         <Icon name="Download" size={iconSize} />
-        {label}
+        <span className={labelClassName}>{label}</span>
       </button>
 
       {showHelp && !deferred && (
