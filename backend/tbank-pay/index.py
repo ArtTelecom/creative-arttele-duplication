@@ -238,6 +238,40 @@ def _credit_via_kassa(login: str, amount: float, order_id: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def _notify_telegram(login: str, amount: float, order_id: str, credit_result: dict) -> None:
+    """Отправляет уведомление об успешной оплате в Telegram-канал.
+    Не влияет на приём платежа: любые ошибки только логируются."""
+    token = os.environ.get("TELEGRAM_PAY_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_PAY_CHAT_ID", "")
+    if not token or not chat_id:
+        print("[TBANK] telegram notify skipped: token/chat_id not set")
+        return
+    ok = bool(credit_result.get("ok"))
+    balance = credit_result.get("balance_before", "")
+    status_line = "✅ Оплата зачислена" if ok else "⚠️ Оплата принята банком, но зачисление не прошло"
+    text = (
+        f"{status_line}\n\n"
+        f"👤 Абонент: {login}\n"
+        f"💳 Сумма: {amount:.2f} ₽\n"
+        f"🧾 Заказ: {order_id}"
+    )
+    if balance:
+        text += f"\n💰 Баланс до пополнения: {balance} ₽"
+    if not ok and credit_result.get("error"):
+        text += f"\n❗ Ошибка: {credit_result.get('error')}"
+    payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=payload, headers={"Content-Type": "application/json"}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        print("[TBANK] telegram notify sent")
+    except Exception as e:
+        print(f"[TBANK] telegram notify failed: {e}")
+
+
 def handler(event, context):
     """Оплата Т-Банком: создание платёжной ссылки (action=create) и приём webhook от банка (action=notify) с зачислением на счёт абонента."""
     method = event.get("httpMethod", "GET")
@@ -283,6 +317,10 @@ def handler(event, context):
             "has_db_pass": bool(os.environ.get("MIKROBILL_DB_PASS", "")),
             "notify_url": funcurl_self(event),
         })}
+
+    if action == "test_notify":
+        _notify_telegram("0000301", 5.0, "TEST-NOTIFY", {"ok": True, "balance_before": "1022.00"})
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({"sent": True})}
 
     if action == "dbtest":
         return {"statusCode": 200, "headers": cors, "body": json.dumps(_dbtest())}
@@ -383,6 +421,7 @@ def handler(event, context):
             amount = float(data.get("Amount", 0)) / 100.0
             result = _credit_via_kassa(login, amount, order_id)
             print(f"[TBANK] credit login={login} amount={amount} order={order_id} -> {result}")
+            _notify_telegram(login, amount, order_id, result)
         else:
             print(f"[TBANK] notify ignored status={status}")
 
