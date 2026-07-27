@@ -320,7 +320,11 @@ def handler(event, context):
 
     if action == "test_notify":
         _notify_telegram("0000301", 5.0, "TEST-NOTIFY", {"ok": True, "balance_before": "1022.00"})
-        return {"statusCode": 200, "headers": cors, "body": json.dumps({"sent": True})}
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({
+            "sent": True,
+            "has_token": bool(os.environ.get("TELEGRAM_PAY_BOT_TOKEN", "")),
+            "has_chat_id": bool(os.environ.get("TELEGRAM_PAY_CHAT_ID", "")),
+        })}
 
     if action == "dbtest":
         return {"statusCode": 200, "headers": cors, "body": json.dumps(_dbtest())}
