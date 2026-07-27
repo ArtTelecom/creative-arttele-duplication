@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import { LOGO_URL, UserData } from "./DashboardShared";
+import InstallAppButton from "@/components/InstallAppButton";
 
 interface Props {
   user: UserData;
@@ -60,6 +61,13 @@ export default function DashboardHeader({
         >
           <Icon name="User" size={18} className={isBlocked ? "pulse-red-icon" : ""} style={{ color: isBlocked ? "#ef4444" : "var(--neon-blue)" }} />
         </div>
+        <InstallAppButton
+          bare
+          iconSize={16}
+          helpAlign="right"
+          className="hidden sm:flex items-center gap-1.5 text-white/40 hover:text-[var(--neon-blue)] text-sm transition-colors font-normal"
+          label="Приложение"
+        />
         <button
           onClick={onLogout}
           className="hidden sm:flex items-center gap-1.5 text-white/40 hover:text-white/70 text-sm transition-colors"

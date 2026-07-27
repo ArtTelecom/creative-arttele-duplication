@@ -10,12 +10,18 @@ interface InstallAppButtonProps {
   className?: string;
   label?: string;
   style?: React.CSSProperties;
+  bare?: boolean;        // без собственного градиента/обёртки (для встраивания в шапку и т.п.)
+  iconSize?: number;
+  helpAlign?: "center" | "right";
 }
 
 export default function InstallAppButton({
   className = "",
   label = "Установить приложение",
   style,
+  bare = false,
+  iconSize = 18,
+  helpAlign = "center",
 }: InstallAppButtonProps) {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [installed, setInstalled] = useState(false);
@@ -60,19 +66,19 @@ export default function InstallAppButton({
   };
 
   return (
-    <div className="relative w-full sm:w-auto">
+    <div className={`relative ${bare ? "" : "w-full sm:w-auto"}`}>
       <button
         onClick={handleClick}
-        className={`inline-flex items-center justify-center gap-2 font-bold transition-all ${className}`}
-        style={{ background: "linear-gradient(135deg, var(--neon-blue), var(--neon-green))", ...style }}
+        className={`inline-flex items-center justify-center gap-2 transition-all ${className}`}
+        style={bare ? style : { background: "linear-gradient(135deg, var(--neon-blue), var(--neon-green))", ...style }}
       >
-        <Icon name="Download" size={18} />
+        <Icon name="Download" size={iconSize} />
         {label}
       </button>
 
       {showHelp && !deferred && (
         <div
-          className="absolute z-30 top-full mt-2 left-1/2 -translate-x-1/2 w-64 rounded-2xl p-4 text-sm text-white/80 text-left"
+          className={`absolute z-30 top-full mt-2 w-64 rounded-2xl p-4 text-sm text-white/80 text-left ${helpAlign === "right" ? "right-0" : "left-1/2 -translate-x-1/2"}`}
           style={{
             background: "rgba(17,22,36,0.98)",
             border: "1px solid rgba(255,255,255,0.12)",

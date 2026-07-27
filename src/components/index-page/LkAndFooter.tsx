@@ -99,7 +99,7 @@ export default function LkAndFooter() {
                   </div>
                 </div>
                 <InstallAppButton
-                  className="w-full justify-center py-3 rounded-xl text-[#0b0e17] text-sm neon-glow-btn"
+                  className="w-full justify-center py-3 rounded-xl text-[#0b0e17] text-sm font-bold neon-glow-btn"
                   label="Установить приложение"
                 />
               </div>
