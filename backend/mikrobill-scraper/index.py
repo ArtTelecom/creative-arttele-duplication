@@ -93,6 +93,8 @@ def handler(event, context):
         return handle_speed_history(event, cors)
     elif action == 'ping':
         return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'status': 'ok'})}
+    elif action == 'probe_pay':
+        return handle_probe_pay(event, cors)
     else:
         return {'statusCode': 400, 'headers': cors, 'body': json.dumps({'error': 'Unknown action'})}
 
@@ -179,6 +181,99 @@ def kassa_session():
         timeout=10,
     )
     return s
+
+
+def handle_probe_pay(event, cors):
+    """Разведка: как касса MikroBill принимает платёж. Логинится кассиром, ищет
+    в карточке абонента формы/ссылки/поля для внесения оплаты. Ничего не зачисляет."""
+    params = event.get('queryStringParameters') or {}
+    login = (params.get('login') or '').strip()
+    result = {'login': login, 'kassa_login_set': bool(os.environ.get('KASSA_LOGIN'))}
+
+    s = kassa_session()
+    user = kassa_find_user(s, login) if login else None
+    result['found_user'] = user
+    uid = (user or {}).get('uid', '')
+
+    findings = []
+    # Пробуем типовые страницы кассы, где обычно вносят платёж
+    probe_urls = [
+        f"/usrstat.php?client={requests.utils.quote(login)}" if login else None,
+        f"/index.php?uid={uid}" if uid else None,
+        f"/api.php?action=GET_USER_INFO&value={requests.utils.quote(login)}" if login else None,
+        "/index.php",
+        "/pay.php", "/payment.php", "/money.php", "/addpay.php", "/plata.php",
+    ]
+    for u in probe_urls:
+        if not u:
+            continue
+        try:
+            r = s.get(KASSA_URL + u, timeout=12)
+            html = smart_text(r)
+        except Exception as e:
+            findings.append({'url': u, 'error': str(e)[:200]})
+            continue
+        low = html.lower()
+        # Ищем всё, что похоже на внесение платежа
+        forms = re.findall(r'<form[^>]*action\s*=\s*["\']([^"\']*)["\'][^>]*>', html, re.I)
+        pay_inputs = re.findall(r'name\s*=\s*["\']([^"\']*(?:sum|summa|amount|money|plata|deposit|pay)[^"\']*)["\']', html, re.I)
+        pay_links = re.findall(r'(?:href|onclick|action)\s*=\s*["\']([^"\']*(?:pay|plata|money|deposit|addpay|popoln|zachisl)[^"\']*)["\']', low)
+        findings.append({
+            'url': u,
+            'status': r.status_code,
+            'len': len(html),
+            'is_login_page': 'chaiserlogin' in low,
+            'forms': list(dict.fromkeys(forms))[:10],
+            'pay_inputs': list(dict.fromkeys(pay_inputs))[:15],
+            'pay_links': list(dict.fromkeys(pay_links))[:15],
+            'has_word_platezh': 'платеж' in low or 'платёж' in low or 'пополн' in low,
+        })
+
+    # Разбор addcash.php — форма внесения платежа кассиром
+    if login:
+        try:
+            r = s.get(KASSA_URL + '/addcash.php?client=' + requests.utils.quote(login), timeout=12)
+            html = smart_text(r)
+            inputs = re.findall(r'<(?:input|select|textarea)[^>]*name\s*=\s*["\']([^"\']+)["\'][^>]*>', html, re.I)
+            form_actions = re.findall(r'<form[^>]*action\s*=\s*["\']([^"\']*)["\']', html, re.I)
+            hidden = re.findall(r'<input[^>]*type\s*=\s*["\']hidden["\'][^>]*>', html, re.I)
+            result['addcash'] = {
+                'status': r.status_code, 'len': len(html),
+                'is_login_page': 'chaiserlogin' in html.lower(),
+                'inputs': list(dict.fromkeys(inputs))[:30],
+                'form_actions': list(dict.fromkeys(form_actions))[:10],
+                'hidden_tags': hidden[:15],
+                'snippet': html[:1500],
+            }
+        except Exception as e:
+            result['addcash_error'] = str(e)[:200]
+        # IT_POSSIBLE_TO_PAY
+        try:
+            r2 = s.get(KASSA_URL + '/api.php?action=IT_POSSIBLE_TO_PAY&value=' + requests.utils.quote(login), timeout=10)
+            result['it_possible_to_pay'] = smart_text(r2)[:300]
+        except Exception as e:
+            result['itp_error'] = str(e)[:200]
+
+    # Глубже разбираем главную кассы: ищем moneyframe и все .php страницы
+    try:
+        r = s.get(KASSA_URL + '/index.php', timeout=12)
+        html = smart_text(r)
+        # контекст вокруг moneyframe / money
+        ctx = []
+        for m in re.finditer(r'money', html, re.I):
+            a = max(0, m.start() - 120)
+            ctx.append(html[a:m.start() + 120].replace('\n', ' ').replace('\t', ' '))
+        result['money_context'] = ctx[:8]
+        # все php-страницы и iframe src
+        php_pages = re.findall(r'["\']([^"\']*\.php[^"\']*)["\']', html)
+        result['php_pages'] = list(dict.fromkeys(php_pages))[:60]
+        iframes = re.findall(r'<iframe[^>]*(?:src|name)\s*=\s*["\']([^"\']*)["\']', html, re.I)
+        result['iframes'] = list(dict.fromkeys(iframes))[:20]
+    except Exception as e:
+        result['deep_error'] = str(e)[:200]
+
+    result['findings'] = findings
+    return {'statusCode': 200, 'headers': cors, 'body': json.dumps(result, ensure_ascii=False)}
 
 
 def kassa_find_user(session, login):
