@@ -42,7 +42,10 @@ export function TabBalance({ user, payments, loading }: { user: UserData; paymen
             </p>
           </div>
           <div className="flex gap-3">
-            <NeonButton variant="blue" onClick={() => setShowPayBanner(true)}>
+            <NeonButton
+              variant="blue"
+              onClick={() => window.open("https://lk.arttele.ru/tinkoff.php", "_blank", "noopener,noreferrer")}
+            >
               <Icon name="Plus" size={16} />
               Пополнить баланс
             </NeonButton>
