@@ -203,7 +203,15 @@ def kassa_add_cash(login, amount, comment=''):
         return {'ok': False, 'error': 'login/amount required'}
 
     s = kassa_session()
-    user = kassa_find_user(s, login)
+    # Логин ЛК может совпадать с несколькими абонентами. Уточняем НАСТОЯЩЕГО
+    # абонента по номеру договора из его карточки, чтобы зачислить на верный счёт.
+    info = kassa_get_user_info(s, login)
+    account = (info.get('договор') or '').strip()
+    user = None
+    if account and account != login:
+        user = kassa_find_user(s, account)
+    if not user or not user.get('uid'):
+        user = kassa_find_user(s, login)
     if not user or not user.get('uid'):
         return {'ok': False, 'error': f'user {login} not found'}
     uid = user['uid']
@@ -1617,6 +1625,15 @@ def handle_auth(event, cors):
         return {'statusCode': 401, 'headers': cors, 'body': json.dumps({'error': 'Неверный логин или пароль'})}
 
     info = kassa_get_user_info(session, login)
+
+    # Уточняем абонента по договору из карточки (логин ЛК может совпадать
+    # с несколькими абонентами — берём того, чей это договор).
+    account = (info.get('договор') or '').strip()
+    if account and account != login:
+        found_by_acc = kassa_find_user(session, account)
+        if found_by_acc:
+            found = found_by_acc
+
     user = build_user_data(login, found, info, session)
 
     return {'statusCode': 200, 'headers': cors, 'body': json.dumps({'success': True, 'user': user}, ensure_ascii=False)}
@@ -1653,6 +1670,17 @@ def handle_user_info(event, cors):
         return {'statusCode': 404, 'headers': cors, 'body': json.dumps({'error': 'User not found'})}
 
     info = kassa_get_user_info(session, login)
+
+    # Логин ЛК может совпасть с несколькими абонентами (finduser2 отдаёт список
+    # и берёт первого — не всегда нужного). Карточка (usrstat/GET_USER_INFO) знает
+    # НАСТОЯЩИЙ договор абонента — переопределяем абонента поиском по договору,
+    # чтобы имя/uid/баланс относились именно к нему.
+    account = (info.get('договор') or '').strip()
+    if account and account != login:
+        found_by_acc = kassa_find_user(session, account)
+        if found_by_acc:
+            found = found_by_acc
+
     user = build_user_data(login, found, info, session)
 
     # ПРОВЕРКА ВЛАДЕЛЬЦА СЕССИИ: грузим главную ЛК и убеждаемся,
