@@ -1504,7 +1504,10 @@ def build_user_data(login, found, info, session=None):
 
     is_active = found.get('active', '') == '1'
 
-    balance_raw = found.get('balance', '') or info.get('баланс', '')
+    # Приоритет — баланс из карточки абонента (усрстат/GET_USER_INFO):
+    # он актуален и относится к конкретному договору. finduser2 может вернуть
+    # список абонентов и устаревший баланс первого — используем его лишь как запас.
+    balance_raw = info.get('баланс', '') or found.get('balance', '')
     balance = re.search(r'(-?\d+[.,]?\d*)', balance_raw)
     balance_val = balance.group(1).replace(',', '.') if balance else '0'
 
