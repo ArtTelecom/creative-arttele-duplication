@@ -2,7 +2,13 @@ export const SPEED_TEST_ORIGIN = typeof window !== "undefined" ? window.location
 export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
-export const SPEED_TEST_FILE_BYTES = 10 * 1024 * 1024;
+export const SPEED_TEST_FILE_BYTES = 25 * 1024 * 1024;
+
+// Города для выбора сервера замера
+export const SPEED_TEST_CITIES = [
+  "Краснодар", "Энем", "Яблоновский", "Майкоп", "Анапа", "Новороссийск",
+  "Санкт-Петербург", "Москва", "Новосибирск", "Геленджик", "Сочи", "Волгоград",
+];
 
 export type Phase = "idle" | "ping" | "download" | "upload" | "done";
 export interface Results { ping: number | null; download: number | null; upload: number | null; }

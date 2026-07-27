@@ -121,13 +121,16 @@ export function useSpeedTest() {
   }
 
   async function measureUpload(onProgress: (mbps: number) => void): Promise<number> {
-    const PARALLEL = 4;
-    const CHUNK = 2 * 1024 * 1024; // 2 МБ полезной нагрузки на запрос
+    const PARALLEL = 6;
+    const CHUNK = 4 * 1024 * 1024; // 4 МБ полезной нагрузки на запрос
     const MAX_SECONDS = 8;
-    const WARMUP_MS = 800;
+    const WARMUP_MS = 1000;
 
+    // Заполняем весь буфер случайными данными порциями по 64КБ (ограничение crypto)
     const payload = new Uint8Array(CHUNK);
-    crypto.getRandomValues(payload.slice(0, Math.min(65536, CHUNK)));
+    for (let off = 0; off < CHUNK; off += 65536) {
+      crypto.getRandomValues(payload.subarray(off, Math.min(off + 65536, CHUNK)));
+    }
 
     let counted = false;
     let countStart = 0;

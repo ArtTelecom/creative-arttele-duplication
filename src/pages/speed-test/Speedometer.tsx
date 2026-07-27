@@ -106,10 +106,10 @@ export default function Speedometer({ value, max, phase }: { value: number; max:
         fontFamily="Montserrat, sans-serif"
         style={{ textTransform: "uppercase" }}
       >
-        {phase === "download" ? "↓ DOWNLOAD"
-          : phase === "upload" ? "↑ UPLOAD"
-          : phase === "ping" ? "PING"
-          : phase === "done" ? "DONE" : "READY"}
+        {phase === "download" ? "↓ ЗАГРУЗКА"
+          : phase === "upload" ? "↑ ОТДАЧА"
+          : phase === "ping" ? "ПИНГ"
+          : phase === "done" ? "ГОТОВО" : "ГОТОВ"}
       </text>
 
       {/* Big number */}
@@ -134,7 +134,7 @@ export default function Speedometer({ value, max, phase }: { value: number; max:
         fill="rgba(255,255,255,0.45)"
         fontFamily="Montserrat, sans-serif"
       >
-        {active && value >= 1000 ? "Gbps" : "Mbps"}
+        {active && value >= 1000 ? "Гбит/с" : "Мбит/с"}
       </text>
     </svg>
   );

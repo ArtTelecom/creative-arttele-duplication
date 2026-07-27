@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import Speedometer from "./Speedometer";
-import { Phase, Results, HistoryEntry, SCALE_MAX, UPLOAD_MAX, ST_DOWNLOAD, ST_UPLOAD } from "./constants";
+import { Phase, Results, HistoryEntry, SCALE_MAX, UPLOAD_MAX, ST_DOWNLOAD, ST_UPLOAD, SPEED_TEST_CITIES } from "./constants";
 
 interface SpeedTestContentProps {
   phase: Phase;
@@ -30,13 +31,16 @@ export default function SpeedTestContent({
   const isRunning = phase === "ping" || phase === "download" || phase === "upload";
   const gaugeMax = phase === "upload" ? UPLOAD_MAX : SCALE_MAX;
 
+  const [city, setCity] = useState<string>(SPEED_TEST_CITIES[0]);
+  const [cityOpen, setCityOpen] = useState(false);
+
   const fmt = (v: number | null) =>
     v === null ? "—" : v >= 1000 ? (v / 1000).toFixed(2) : String(v);
 
   const metrics = [
-    { label: "PING", unit: "ms", value: results.ping === null ? "—" : String(results.ping), icon: "Activity", color: "#f5c400", active: phase === "ping" },
-    { label: "DOWNLOAD", unit: results.download && results.download >= 1000 ? "Gbps" : "Mbps", value: fmt(results.download), icon: "ArrowDown", color: ST_DOWNLOAD, active: phase === "download" },
-    { label: "UPLOAD", unit: "Mbps", value: fmt(results.upload), icon: "ArrowUp", color: ST_UPLOAD, active: phase === "upload" },
+    { label: "ПИНГ", unit: "мс", value: results.ping === null ? "—" : String(results.ping), icon: "Activity", color: "#f5c400", active: phase === "ping" },
+    { label: "ЗАГРУЗКА", unit: results.download && results.download >= 1000 ? "Гбит/с" : "Мбит/с", value: fmt(results.download), icon: "ArrowDown", color: ST_DOWNLOAD, active: phase === "download" },
+    { label: "ОТДАЧА", unit: "Мбит/с", value: fmt(results.upload), icon: "ArrowUp", color: ST_UPLOAD, active: phase === "upload" },
   ];
 
   return (
@@ -68,32 +72,70 @@ export default function SpeedTestContent({
           ))}
         </div>
 
-        {/* Speedometer with centered GO button */}
-        <div className="relative w-full flex items-center justify-center">
-          <Speedometer value={currentValue} max={gaugeMax} phase={phase} />
+        {/* Выбор города (сервера) */}
+        <div className="relative mb-1">
+          <button
+            onClick={() => setCityOpen((o) => !o)}
+            disabled={isRunning}
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold transition-all"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              color: "rgba(255,255,255,0.8)",
+              cursor: isRunning ? "not-allowed" : "pointer",
+              opacity: isRunning ? 0.5 : 1,
+            }}
+          >
+            <Icon name="MapPin" size={14} style={{ color: ST_DOWNLOAD }} />
+            {city}
+            <Icon name="ChevronDown" size={14} className="text-white/40" />
+          </button>
 
-          {(phase === "idle" || phase === "done") && (
-            <button
-              onClick={runTest}
-              className="absolute rounded-full font-montserrat font-black flex items-center justify-center transition-all duration-300 hover:scale-105"
-              style={{
-                width: 104, height: 104,
-                border: `2px solid ${ST_DOWNLOAD}`,
-                color: ST_DOWNLOAD,
-                background: "rgba(0,191,255,0.06)",
-                fontSize: phase === "done" ? 20 : 30,
-                letterSpacing: 1,
-                boxShadow: `0 0 30px rgba(0,191,255,0.35)`,
-              }}
-            >
-              {phase === "done" ? "↻" : "GO"}
-            </button>
+          {cityOpen && !isRunning && (
+            <div className="absolute z-20 left-1/2 -translate-x-1/2 mt-2 w-56 max-h-64 overflow-y-auto rounded-2xl p-1"
+              style={{ background: "rgba(17,22,36,0.98)", border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>
+              {SPEED_TEST_CITIES.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => { setCity(c); setCityOpen(false); }}
+                  className="w-full text-left px-3 py-2 rounded-xl text-sm transition-colors flex items-center gap-2 hover:bg-white/5"
+                  style={{ color: c === city ? ST_DOWNLOAD : "rgba(255,255,255,0.75)" }}
+                >
+                  <Icon name="MapPin" size={13} style={{ opacity: c === city ? 1 : 0.4 }} />
+                  {c}
+                </button>
+              ))}
+            </div>
           )}
         </div>
 
+        {/* Speedometer */}
+        <div className="w-full flex items-center justify-center">
+          <Speedometer value={currentValue} max={gaugeMax} phase={phase} />
+        </div>
+
+        {/* Кнопка Старт — pill под спидометром */}
+        <button
+          onClick={runTest}
+          disabled={isRunning}
+          className="mt-1 font-montserrat font-black tracking-wide transition-all duration-300 hover:scale-[1.03]"
+          style={{
+            padding: "14px 56px",
+            borderRadius: 9999,
+            fontSize: 18,
+            border: `2px solid ${ST_DOWNLOAD}`,
+            color: isRunning ? "rgba(255,255,255,0.35)" : "#0b0e17",
+            background: isRunning ? "rgba(255,255,255,0.05)" : ST_DOWNLOAD,
+            cursor: isRunning ? "not-allowed" : "pointer",
+            boxShadow: isRunning ? "none" : `0 0 30px rgba(0,191,255,0.4)`,
+          }}
+        >
+          {phase === "idle" ? "Старт" : phase === "done" ? "Повторить" : "Идёт тест…"}
+        </button>
+
         {/* Quality badge */}
         {phase === "done" && results.download !== null && (
-          <div className="mt-3 mb-1 px-5 py-2.5 rounded-full text-sm font-semibold"
+          <div className="mt-4 mb-1 px-5 py-2.5 rounded-full text-sm font-semibold"
             style={{ background: `${quality(results.download).color}18`, border: `1px solid ${quality(results.download).color}44`, color: quality(results.download).color }}>
             {quality(results.download).text} — {quality(results.download).hint}
           </div>
