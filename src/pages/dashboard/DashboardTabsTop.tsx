@@ -11,6 +11,7 @@ import MainStatsCards from "./MainStatsCards";
 import MainQuickActions from "./MainQuickActions";
 import BalanceForecastCard from "./BalanceForecastCard";
 import PaymentBanner from "./PaymentBanner";
+import PayModal from "./PayModal";
 
 export function TabMain({ user, loading, onChangeTab }: { user: UserData; loading: boolean; onChangeTab: (tab: TabKey) => void }) {
   if (loading) return <LoadingSpinner />;
@@ -25,6 +26,7 @@ export function TabMain({ user, loading, onChangeTab }: { user: UserData; loadin
 
 export function TabBalance({ user, payments, loading }: { user: UserData; payments: UserData["payments"]; loading: boolean }) {
   const [showPayBanner, setShowPayBanner] = useState(false);
+  const [showPayModal, setShowPayModal] = useState(false);
 
   if (loading) return <LoadingSpinner />;
 
@@ -42,10 +44,7 @@ export function TabBalance({ user, payments, loading }: { user: UserData; paymen
             </p>
           </div>
           <div className="flex gap-3">
-            <NeonButton
-              variant="blue"
-              onClick={() => window.open("https://lk.arttele.ru/tinkoff.php", "_blank", "noopener,noreferrer")}
-            >
+            <NeonButton variant="blue" onClick={() => setShowPayModal(true)}>
               <Icon name="Plus" size={16} />
               Пополнить баланс
             </NeonButton>
@@ -60,6 +59,7 @@ export function TabBalance({ user, payments, loading }: { user: UserData; paymen
       <BalanceForecastCard user={user} />
 
       {showPayBanner && <PaymentBanner onClose={() => setShowPayBanner(false)} />}
+      {showPayModal && <PayModal user={user} onClose={() => setShowPayModal(false)} />}
 
       <GlassCard className="p-6">
         <h3 className="text-lg font-bold text-white font-montserrat mb-4">Последние платежи</h3>
