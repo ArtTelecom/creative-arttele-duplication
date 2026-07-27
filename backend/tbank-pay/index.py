@@ -208,6 +208,36 @@ def _credit_to_billing(login: str, amount: float, order_id: str) -> dict:
             pass
 
 
+MIKROBILL_CREDIT_URL = "https://functions.poehali.dev/f2c8bb7d-33bd-4950-bcd7-7f4c5f5fbfdd?action=credit"
+
+
+def _credit_via_kassa(login: str, amount: float, order_id: str) -> dict:
+    """Зачисляет платёж на счёт абонента через кассу MikroBill (функция mikrobill-scraper)."""
+    key = os.environ.get("MIKROBILL_API_KEY", "")
+    if not key:
+        return {"ok": False, "error": "MIKROBILL_API_KEY not set"}
+    payload = {
+        "action": "credit",
+        "login": login,
+        "amount": amount,
+        "comment": f"Онлайн-оплата Т-Банк [{order_id}]",
+        "key": key,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        MIKROBILL_CREDIT_URL, data=data,
+        headers={"Content-Type": "application/json", "X-Internal-Key": key},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return {"ok": False, "error": f"HTTP {e.code}", "details": e.read().decode("utf-8", "ignore")[:300]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def handler(event, context):
     """Оплата Т-Банком: создание платёжной ссылки (action=create) и приём webhook от банка (action=notify) с зачислением на счёт абонента."""
     method = event.get("httpMethod", "GET")
@@ -216,6 +246,13 @@ def handler(event, context):
 
     params = event.get("queryStringParameters") or {}
     action = params.get("action", "")
+    if not action and method == "POST":
+        try:
+            _b = json.loads(event.get("body") or "{}")
+            if isinstance(_b, dict):
+                action = _b.get("action", "")
+        except Exception:
+            action = ""
     cors = _cors()
 
     terminal_key = os.environ.get("TBANK_TERMINAL_KEY", "")
@@ -249,6 +286,7 @@ def handler(event, context):
 
     if action == "dbtest":
         return {"statusCode": 200, "headers": cors, "body": json.dumps(_dbtest())}
+
 
     if action == "create":
         if not terminal_key or not password:
@@ -343,7 +381,7 @@ def handler(event, context):
             if isinstance(extra, dict) and extra.get("login"):
                 login = extra["login"]
             amount = float(data.get("Amount", 0)) / 100.0
-            result = _credit_to_billing(login, amount, order_id)
+            result = _credit_via_kassa(login, amount, order_id)
             print(f"[TBANK] credit login={login} amount={amount} order={order_id} -> {result}")
         else:
             print(f"[TBANK] notify ignored status={status}")
