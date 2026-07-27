@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import PageBackground from "@/components/PageBackground";
 import { TabKey } from "./dashboard/DashboardShared";
 import useDashboardData from "./dashboard/useDashboardData";
@@ -11,7 +12,27 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const { userData, user, loading, isBlocked, handleLogout } = useDashboardData();
+  const { userData, user, loading, isBlocked, handleLogout, refreshNow } = useDashboardData();
+
+  // Возврат со страницы оплаты Т-Банка: ?paid=<order>&amount=<сумма>
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("paid")) {
+      const amount = sp.get("amount");
+      toast.success(
+        amount
+          ? `Оплата на ${amount} ₽ принята! Баланс обновится в течение минуты.`
+          : "Оплата принята! Баланс обновится в течение минуты."
+      );
+      setActiveTab("balance");
+      // Биллинг зачисляет с задержкой — обновляем баланс несколько раз
+      const delays = [3000, 10000, 20000, 35000, 55000];
+      const timers = delays.map((d) => window.setTimeout(() => refreshNow(), d));
+      // Чистим адрес от параметров оплаты
+      window.history.replaceState({}, "", window.location.pathname);
+      return () => timers.forEach((t) => window.clearTimeout(t));
+    }
+  }, [refreshNow]);
 
   const handleMenuClick = (key: TabKey | "logout") => {
     if (key === "logout") {

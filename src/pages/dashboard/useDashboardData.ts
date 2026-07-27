@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import funcUrls from "../../../backend/func2url.json";
@@ -148,6 +148,11 @@ export function useDashboardData() {
     toast.info("Обновляю данные с биллинга...");
   };
 
+  // Принудительное обновление без тостов и без ограничения по времени
+  const refreshNow = useCallback(() => {
+    fetchRef.current?.(false);
+  }, []);
+
   const handleLogout = () => {
     localStorage.removeItem("lk_user");
     localStorage.removeItem("lk_creds");
@@ -161,6 +166,7 @@ export function useDashboardData() {
     refreshing,
     isBlocked,
     handleRefresh,
+    refreshNow,
     handleLogout,
   };
 }
