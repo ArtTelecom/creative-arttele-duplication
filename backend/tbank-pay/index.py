@@ -260,18 +260,28 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     if not ok and credit_result.get("error"):
         text += f"\n❗ Ошибка: {credit_result.get('error')}"
     payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
-    req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=payload, headers={"Content-Type": "application/json"}, method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode("utf-8", "ignore")
-        print(f"[TBANK] telegram notify sent: {body[:200]}")
-    except urllib.error.HTTPError as e:
-        print(f"[TBANK] telegram notify HTTP {e.code}: {e.read().decode('utf-8','ignore')[:200]}")
-    except Exception as e:
-        print(f"[TBANK] telegram notify failed: {e}")
+    last_err = ""
+    for attempt in range(1, 4):
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=payload, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                body = resp.read().decode("utf-8", "ignore")
+            print(f"[TBANK] telegram notify sent (attempt {attempt}): {body[:200]}")
+            return
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8", "ignore")[:200]
+            print(f"[TBANK] telegram notify HTTP {e.code} (attempt {attempt}): {err_body}")
+            if e.code < 500:
+                return
+            last_err = f"HTTP {e.code}"
+        except Exception as e:
+            last_err = str(e)
+            print(f"[TBANK] telegram notify failed (attempt {attempt}): {e}")
+        time.sleep(1)
+    print(f"[TBANK] telegram notify GAVE UP after 3 attempts: {last_err}")
 
 
 def handler(event, context):
@@ -323,6 +333,9 @@ def handler(event, context):
     if action == "dbtest":
         return {"statusCode": 200, "headers": cors, "body": json.dumps(_dbtest())}
 
+    if action == "test_notify":
+        _notify_telegram("ТЕСТ", 1.0, "test-" + str(int(time.time())), {"ok": True, "balance_before": "0.00"})
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True, "message": "Тестовое уведомление отправлено, проверьте Telegram"})}
 
     if action == "create":
         if not terminal_key or not password:
