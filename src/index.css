@@ -39,8 +39,8 @@
     --neon-purple: #a855f7;
     --dark-bg: #0b0e17;
     --card-bg: #111827;
-    --glass-bg: rgba(255, 255, 255, 0.04);
-    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-bg: rgba(11, 14, 23, 0.55);
+    --glass-border: rgba(255, 255, 255, 0.1);
   }
 }
 
@@ -54,6 +54,7 @@
     font-family: "Golos Text", sans-serif;
     background-color: var(--dark-bg);
     overflow-x: hidden;
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
   }
 }
 
