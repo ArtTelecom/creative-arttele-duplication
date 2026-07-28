@@ -12,6 +12,7 @@ const navLinks = [
   { label: "Блог",       href: "/blog" },
   { label: "FAQ",        href: "/faq" },
   { label: "Контакты",   href: "/contacts" },
+  { label: "Документы",  href: "/documents" },
   { label: "Тест скорости", href: "/speedtest" },
   { label: "Видеонаблюдение", href: "/video" },
   { label: "Облачное видео", href: "/video/cloud" },

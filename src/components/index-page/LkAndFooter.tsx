@@ -178,7 +178,7 @@ export default function LkAndFooter() {
                 { label: "О нас", href: "/about" },
                 { label: "Блог", href: "/blog" },
                 { label: "Контакты", href: "/contacts" },
-                { label: "Публичная оферта", href: "/offer" },
+                { label: "Документы и договоры", href: "/documents" },
               ] },
               { title: "Поддержка", links: [
                 { label: "Личный кабинет", href: "/login" },
@@ -201,6 +201,7 @@ export default function LkAndFooter() {
             <span>© 2026 АртТелеком Юг. Все права защищены.</span>
             <div className="flex gap-6 flex-wrap justify-center">
               {[
+                { label: "Документы и договоры", href: "/documents" },
                 { label: "Публичная оферта", href: "/offer" },
               ].map(t => (
                 <Link key={t.label} to={t.href} className="hover:text-white/50 transition-colors">{t.label}</Link>

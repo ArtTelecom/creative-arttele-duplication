@@ -23,6 +23,7 @@ import AdminStatsPage from "./pages/AdminStatsPage";
 import StatusPage from "./pages/StatusPage";
 import RequisitesPage from "./pages/RequisitesPage";
 import OfferPage from "./pages/OfferPage";
+import DocumentsPage from "./pages/DocumentsPage";
 import NotFound from "./pages/NotFound";
 import ChatWidget from "./components/ChatWidget";
 
@@ -55,6 +56,7 @@ const App = () => (
           <Route path="/status" element={<StatusPage />} />
           <Route path="/requisites" element={<RequisitesPage />} />
           <Route path="/offer" element={<OfferPage />} />
+          <Route path="/documents" element={<DocumentsPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
