@@ -159,7 +159,7 @@ export default function LkAndFooter() {
                   <span style={{ color: "var(--neon-blue)" }}>АртТелеком</span><span className="text-white"> Юг</span>
                 </span>
               </div>
-              <p className="text-white/50 text-sm leading-relaxed mb-4">Быстрый интернет и надёжная связь для дома и бизнеса с 2012 года.</p>
+              <p className="text-white/70 text-sm leading-relaxed mb-4">Быстрый интернет и надёжная связь для дома и бизнеса с 2012 года.</p>
               <div className="flex gap-3">
                 {["VK", "TG", "YT"].map(s => (
                   <a key={s} href="#" className="w-8 h-8 rounded-lg border border-white/10 flex items-center justify-center text-white/40 hover:text-[#00d4ff] hover:border-[rgba(0,212,255,0.3)] transition-all text-xs font-bold" style={{ background: "rgba(255,255,255,0.05)" }}>{s}</a>
@@ -187,17 +187,17 @@ export default function LkAndFooter() {
               ] },
             ].map((col, i) => (
               <div key={i}>
-                <div className="text-white/70 font-semibold text-sm mb-4">{col.title}</div>
+                <div className="text-white/90 font-semibold text-sm mb-4">{col.title}</div>
                 <ul className="space-y-2">
                   {col.links.map(link => (
-                    <li key={link.label}><Link to={link.href} className="text-white/55 text-sm hover:text-[#00d4ff] transition-colors">{link.label}</Link></li>
+                    <li key={link.label}><Link to={link.href} className="text-white/75 text-sm hover:text-[#00d4ff] transition-colors">{link.label}</Link></li>
                   ))}
                 </ul>
               </div>
             ))}
           </div>
           <div className="section-divider mb-6" />
-          <div className="flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-white/45">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-white/65">
             <span>© 2026 АртТелеком Юг. Все права защищены.</span>
             <div className="flex gap-6 flex-wrap justify-center">
               {[
