@@ -255,6 +255,7 @@ def kassa_add_cash(login, amount, comment=''):
         'ok': ok,
         'status': r.status_code,
         'balance_before': balance_before,
+        'account': account,
         'response': resp_text[:200],
     }
 
