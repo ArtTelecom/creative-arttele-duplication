@@ -458,7 +458,7 @@
 
 /* Navigation blur */
 .nav-blur {
-  background: rgba(11, 14, 23, 0.8);
+  background: rgba(11, 14, 23, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--glass-border);
