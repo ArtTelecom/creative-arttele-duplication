@@ -2,8 +2,18 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import background from "@/data/background";
 
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 export default function PageBackground() {
-  const slides = background.slides ?? [];
+  // Случайный порядок фото, зафиксированный на время визита
+  const [slides] = useState<string[]>(() => shuffle(background.slides ?? []));
   const [current, setCurrent] = useState(0);
   const location = useLocation();
 
