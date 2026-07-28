@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import Speedometer from "./Speedometer";
+import ScenarioBars from "./ScenarioBars";
 import { Phase, Results, HistoryEntry, SCALE_MAX, UPLOAD_MAX, ST_DOWNLOAD, ST_UPLOAD, SPEED_TEST_CITIES } from "./constants";
 
 interface SpeedTestContentProps {
@@ -155,21 +156,14 @@ export default function SpeedTestContent({
         )}
       </div>
 
-      {/* Info row */}
-      <div className="grid grid-cols-3 gap-3 mt-5">
-        {[
-          { icon: "Zap", title: "До 2.5 Гбит/с", desc: "на топовых тарифах", color: "#00d4ff" },
-          { icon: "Clock", title: "Безлимит", desc: "без снижения скорости", color: "#00f57a" },
-          { icon: "Shield", title: "SLA 99.9%", desc: "гарантированный uptime", color: "#a855f7" },
-        ].map((c) => (
-          <div key={c.title} className="glass-card rounded-2xl p-4 border border-white/5 text-center">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center mx-auto mb-2" style={{ background: `${c.color}18` }}>
-              <Icon name={c.icon as "Zap"} size={15} style={{ color: c.color }} />
-            </div>
-            <div className="font-bold text-xs mb-0.5">{c.title}</div>
-            <div className="text-white/30 text-xs">{c.desc}</div>
-          </div>
-        ))}
+      {/* Сценарии использования — интерактивные */}
+      <div className="mt-6">
+        <div className="text-center text-white/40 text-xs mb-1">
+          {phase === "done" && results.download !== null
+            ? "Для чего хватит вашей скорости — нажмите на значок"
+            : "Что потянет ваш интернет"}
+        </div>
+        <ScenarioBars results={results} phase={phase} />
       </div>
 
       {/* История замеров */}
