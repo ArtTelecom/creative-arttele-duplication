@@ -4,7 +4,7 @@
   "description": "Личный кабинет абонента АртТелеком: баланс, оплата, тарифы и статистика.",
   "lang": "ru",
   "dir": "ltr",
-  "start_url": "/login?source=pwa",
+  "start_url": "/?app=lk",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

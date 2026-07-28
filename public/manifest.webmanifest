@@ -4,7 +4,7 @@
   "description": "Замер скорости интернета АртТелеком: загрузка, отдача и пинг до локального сервера.",
   "lang": "ru",
   "dir": "ltr",
-  "start_url": "/speedtest?source=pwa",
+  "start_url": "/?app=speedtest",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

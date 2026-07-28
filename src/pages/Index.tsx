@@ -20,6 +20,15 @@ export default function Index() {
     const sp = new URLSearchParams(window.location.search);
     if (sp.get("paid")) {
       navigate(`/dashboard${window.location.search}`, { replace: true });
+      return;
+    }
+    // Установленные PWA стартуют с главной (/?app=...), чтобы не было 404 на сервере.
+    // Отсюда клиентской навигацией переводим на нужный экран приложения.
+    const app = sp.get("app");
+    if (app === "speedtest") {
+      navigate("/speedtest", { replace: true });
+    } else if (app === "lk") {
+      navigate("/login", { replace: true });
     }
   }, [navigate]);
 
