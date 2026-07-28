@@ -33,7 +33,7 @@ export default function PayModal({ user, onClose }: { user: UserData; onClose: (
           amount: sum,
           email: user.email || "",
           phone: user.phone || "",
-          return_url: `${window.location.origin}/dashboard`,
+          return_url: `${window.location.origin}/`,
         }),
       });
       const data = await res.json();

@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import HeroSection from "@/components/index-page/HeroSection";
 import ServicesAndTariffs from "@/components/index-page/ServicesAndTariffs";
@@ -8,13 +10,19 @@ const HERO_IMG = "https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecf
 const CITY_IMG = "https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/files/8c65a182-986a-4921-8613-7a88e4c04b6f.jpg";
 const WORK_IMG = "https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/files/16177b32-dfe0-4dd3-bfd5-a6620431a2a3.jpg";
 
-const navLinks = [
-  { label: "Услуги", href: "#services" },
-  { label: "Тарифы", href: "#tariffs" },
-  { label: "Покрытие", href: "#coverage" },
-];
-
 export default function Index() {
+  const navigate = useNavigate();
+
+  // Возврат после оплаты Т-Банка приходит на главную (/?paid=...&amount=...),
+  // чтобы избежать 404 на прямом заходе в /dashboard.
+  // Переводим в личный кабинет клиентской навигацией — там покажется сообщение и обновится баланс.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("paid")) {
+      navigate(`/dashboard${window.location.search}`, { replace: true });
+    }
+  }, [navigate]);
+
   const scrollTo = (href: string) => {
     const el = document.getElementById(href.replace("#", ""));
     el?.scrollIntoView({ behavior: "smooth" });
