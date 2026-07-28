@@ -63,7 +63,7 @@ export default function Navbar() {
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                 location.pathname === link.href
                   ? "text-[#00d4ff] bg-[rgba(0,212,255,0.1)]"
-                  : "text-white/60 hover:text-white hover:bg-white/5"
+                  : "text-white/85 hover:text-white hover:bg-white/5"
               }`}
             >
               {link.label}
@@ -109,7 +109,7 @@ export default function Navbar() {
               className={`px-3 py-2 rounded-lg text-sm transition-all ${
                 location.pathname === link.href
                   ? "text-[#00d4ff] bg-[rgba(0,212,255,0.1)]"
-                  : "text-white/70 hover:text-white hover:bg-white/5"
+                  : "text-white/85 hover:text-white hover:bg-white/5"
               }`}
             >
               {link.label}
