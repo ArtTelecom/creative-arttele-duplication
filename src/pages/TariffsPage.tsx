@@ -205,22 +205,6 @@ export default function TariffsPage() {
 
         </div>
 
-        {/* Big chameleon banner */}
-        <div className="relative mt-16 rounded-3xl overflow-hidden" style={{ height: 320 }}>
-          <img
-            src="https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/files/b1c68bce-ae49-41b3-a5ec-fd5402b11d57.jpg"
-            alt=""
-            className="w-full h-full object-cover object-center"
-          />
-          <div className="absolute inset-0" style={{ background: "linear-gradient(to right, rgba(11,14,23,0.85) 0%, rgba(11,14,23,0.3) 60%, transparent 100%)" }} />
-          <div className="absolute inset-0 flex items-center px-10">
-            <div>
-              <div className="font-montserrat font-black text-3xl md:text-4xl text-white mb-2">Скорость — наша природа</div>
-              <p className="text-white/50 text-base max-w-xs">Подключайтесь сегодня и ощутите разницу</p>
-            </div>
-          </div>
-        </div>
-
       </div>
     </div>
   );
