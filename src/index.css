@@ -242,8 +242,7 @@
       ellipse at 60% 10%,
       rgba(168, 85, 247, 0.08) 0%,
       transparent 40%
-    ),
-    var(--dark-bg);
+    );
 }
 
 /* Animated gradient border */

@@ -8,13 +8,13 @@
 
 const background = {
 
-  type: "gradient" as "gradient" | "image" | "video",
+  type: "image" as "gradient" | "image" | "video",
 
   // Ссылка на картинку или видео (заполни если type = "image" или "video")
-  src: "",
+  src: "https://cdn.poehali.dev/projects/5573dd0c-764b-4bc3-951f-74ecfdbb396f/files/2334786e-7a81-474a-af1c-ff1ccf1ebcdd.jpg",
 
   // Затемнение поверх медиафайла: 0 = нет, 0.7 = сильное (число от 0 до 1)
-  overlay: 0.6,
+  overlay: 0.72,
 
 };
 
