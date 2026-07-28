@@ -1,18 +1,28 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import background from "@/data/background";
 
 export default function PageBackground() {
   const slides = background.slides ?? [];
   const [current, setCurrent] = useState(0);
+  const location = useLocation();
 
+  // Смена фото каждые slideDuration секунд
   useEffect(() => {
     if (background.type !== "slideshow" || slides.length < 2) return;
     const id = setInterval(
       () => setCurrent((c) => (c + 1) % slides.length),
-      (background.slideDuration ?? 6) * 1000
+      (background.slideDuration ?? 60) * 1000
     );
     return () => clearInterval(id);
   }, [slides.length]);
+
+  // Смена фото при переходе на другую страницу
+  useEffect(() => {
+    if (background.type !== "slideshow" || slides.length < 2) return;
+    setCurrent((c) => (c + 1) % slides.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
 
   if (background.type === "slideshow" && slides.length > 0) {
     return (
@@ -24,10 +34,12 @@ export default function PageBackground() {
             style={{ backgroundImage: `url(${src})`, opacity: i === current ? 1 : 0 }}
           />
         ))}
-        <div
-          className="fixed inset-0 -z-10"
-          style={{ background: `rgba(11,14,23,${background.overlay})` }}
-        />
+        {background.overlay > 0 && (
+          <div
+            className="fixed inset-0 -z-10"
+            style={{ background: `rgba(11,14,23,${background.overlay})` }}
+          />
+        )}
       </>
     );
   }
