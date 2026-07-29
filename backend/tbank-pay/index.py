@@ -257,8 +257,10 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     )
     if account and account != login:
         text += f"📄 Договор: {account}\n"
+    when = time.strftime("%d.%m.%Y %H:%M", time.gmtime(time.time() + 3 * 3600))
     text += (
         f"💳 Сумма: {amount:.2f} ₽\n"
+        f"🕒 Дата и время: {when} (МСК)\n"
         f"🧾 Заказ: {order_id}"
     )
     if balance:
