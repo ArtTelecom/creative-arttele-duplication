@@ -253,10 +253,19 @@ def kassa_add_cash(login, amount, comment=''):
 
     fio = (info.get('фио') or info.get('name') or user.get('name') or '').strip()
 
+    balance_after = ''
+    if ok:
+        try:
+            bb = float(str(balance_before).replace(',', '.').replace(' ', ''))
+            balance_after = f'{bb + amount:.2f}'
+        except (TypeError, ValueError):
+            balance_after = ''
+
     return {
         'ok': ok,
         'status': r.status_code,
         'balance_before': balance_before,
+        'balance_after': balance_after,
         'account': account,
         'fio': fio,
         'response': resp_text[:200],

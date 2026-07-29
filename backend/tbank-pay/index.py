@@ -248,6 +248,7 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
         return
     ok = bool(credit_result.get("ok"))
     balance = credit_result.get("balance_before", "")
+    balance_after = credit_result.get("balance_after", "")
     account = str(credit_result.get("account", "") or "").strip()
     fio = str(credit_result.get("fio", "") or "").strip()
     status_line = "✅ Оплата зачислена" if ok else "⚠️ Оплата принята банком, но зачисление не прошло"
@@ -265,6 +266,8 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     )
     if balance:
         text += f"\n💰 Баланс до пополнения: {balance} ₽"
+    if balance_after:
+        text += f"\n💵 Баланс после пополнения: {balance_after} ₽"
     if not ok and credit_result.get("error"):
         text += f"\n❗ Ошибка: {credit_result.get('error')}"
     payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
