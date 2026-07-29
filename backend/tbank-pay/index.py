@@ -251,11 +251,15 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     balance_after = credit_result.get("balance_after", "")
     account = str(credit_result.get("account", "") or "").strip()
     fio = str(credit_result.get("fio", "") or "").strip()
-    status_line = "✅ Оплата зачислена" if ok else "⚠️ Оплата принята банком, но зачисление не прошло"
-    text = (
-        f"{status_line}\n\n"
-        f"👤 Абонент: {fio or login}\n"
-    )
+    if ok:
+        text = "✅ Оплата зачислена\n\n"
+    else:
+        text = (
+            "🔴🔴🔴 ВНИМАНИЕ! ЗАЧИСЛЕНИЕ НЕ ПРОШЛО 🔴🔴🔴\n"
+            "Деньги приняты банком, но НЕ попали на счёт абонента.\n"
+            "❗ Требуется зачислить платёж ВРУЧНУЮ.\n\n"
+        )
+    text += f"👤 Абонент: {fio or login}\n"
     if account and account != login:
         text += f"📄 Договор: {account}\n"
     when = time.strftime("%d.%m.%Y %H:%M", time.gmtime(time.time() + 3 * 3600))
