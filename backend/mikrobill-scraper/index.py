@@ -251,11 +251,14 @@ def kassa_add_cash(login, amount, comment=''):
     low = resp_text.lower()
     ok = (r.status_code == 200) and ('chaiserlogin' not in low)
 
+    fio = (info.get('фио') or info.get('name') or user.get('name') or '').strip()
+
     return {
         'ok': ok,
         'status': r.status_code,
         'balance_before': balance_before,
         'account': account,
+        'fio': fio,
         'response': resp_text[:200],
     }
 

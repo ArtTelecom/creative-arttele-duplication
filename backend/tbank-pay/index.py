@@ -249,10 +249,11 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     ok = bool(credit_result.get("ok"))
     balance = credit_result.get("balance_before", "")
     account = str(credit_result.get("account", "") or "").strip()
+    fio = str(credit_result.get("fio", "") or "").strip()
     status_line = "✅ Оплата зачислена" if ok else "⚠️ Оплата принята банком, но зачисление не прошло"
     text = (
         f"{status_line}\n\n"
-        f"👤 Абонент: {login}\n"
+        f"👤 Абонент: {fio or login}\n"
     )
     if account and account != login:
         text += f"📄 Договор: {account}\n"
