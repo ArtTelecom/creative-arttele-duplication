@@ -437,7 +437,10 @@ def handler(event, context):
             amount = float(data.get("Amount", 0)) / 100.0
             result = _credit_via_kassa(login, amount, order_id)
             print(f"[TBANK] credit login={login} amount={amount} order={order_id} -> {result}")
-            _notify_telegram(login, amount, order_id, result)
+            # Уведомление в Telegram — только на финальном статусе CONFIRMED,
+            # чтобы не приходило два сообщения (на AUTHORIZED и на CONFIRMED)
+            if status == "CONFIRMED":
+                _notify_telegram(login, amount, order_id, result)
         else:
             print(f"[TBANK] notify ignored status={status}")
 
