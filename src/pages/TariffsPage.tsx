@@ -3,8 +3,7 @@ import { Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Icon from "@/components/ui/icon";
 import PageHero from "@/components/ui/PageHero";
-import tariffs from "@/data/tariffs";
-import businessTariffs from "@/data/business-tariffs";
+import useTariffs from "@/hooks/useTariffs";
 
 const SOCIAL_ICONS = [
   { name: "WhatsApp",  src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/whatsapp.svg",  bg: "#25D366" },
@@ -25,6 +24,7 @@ const colorMap = {
 
 export default function TariffsPage() {
   const [tab, setTab] = useState<Tab>("home");
+  const { home: tariffs, business: businessTariffs } = useTariffs();
 
   return (
     <div className="min-h-screen mesh-bg noise font-sans text-white">

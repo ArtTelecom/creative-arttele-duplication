@@ -1,0 +1,23 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS CORS preflight",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Public list returns tariffs",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Save without password returns 401",
+      "method": "POST",
+      "path": "/",
+      "body": {"action": "save", "items": []},
+      "expectedStatus": 401
+    }
+  ]
+}

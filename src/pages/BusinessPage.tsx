@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Icon from "@/components/ui/icon";
-import businessTariffs from "@/data/business-tariffs";
+import useTariffs from "@/hooks/useTariffs";
 
 const solutions = [
   {
@@ -64,6 +64,7 @@ const colorMap: Record<string, { border: string; bg: string; text: string }> = {
 };
 
 export default function BusinessPage() {
+  const { business: businessTariffs } = useTariffs();
   return (
     <div className="min-h-screen mesh-bg noise font-sans text-white">
       <Navbar />

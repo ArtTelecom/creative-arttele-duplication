@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Icon from "@/components/ui/icon";
-import tariffs from "@/data/tariffs";
+import useTariffs from "@/hooks/useTariffs";
 import locations from "@/data/locations";
 
 const services = [
@@ -16,6 +16,7 @@ const services = [
 export default function ServicesAndTariffs() {
   const [activeTariffTab, setActiveTariffTab] = useState<"home" | "business">("home");
   const navigate = useNavigate();
+  const { home: tariffs } = useTariffs();
 
   return (
     <>

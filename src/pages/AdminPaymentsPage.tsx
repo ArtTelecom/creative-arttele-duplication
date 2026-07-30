@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Icon from "@/components/ui/icon";
+import TariffsEditor from "@/components/admin/TariffsEditor";
 
 const API_URL = "https://functions.poehali.dev/8df3bbb2-ef10-420a-95ca-13829e20eae1";
 const CREDS_KEY = "art_pay_admin";
@@ -43,6 +44,7 @@ const AdminPaymentsPage = () => {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [creditingId, setCreditingId] = useState<number | null>(null);
+  const [section, setSection] = useState<"payments" | "tariffs">("payments");
 
   const manualCredit = async (p: Payment) => {
     if (!confirm(`Зачислить ${p.amount.toFixed(2)} ₽ абоненту ${p.fio || p.login}?`)) return;
@@ -162,13 +164,34 @@ const AdminPaymentsPage = () => {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-white">Журнал платежей</h1>
+          <h1 className="text-2xl font-bold text-white">Личный кабинет</h1>
           <Button variant="outline" onClick={logout}>
             <Icon name="LogOut" size={16} className="mr-2" /> Выйти
           </Button>
         </div>
 
-        {summary && (
+        <div className="flex gap-1 rounded-lg bg-slate-800 p-1 w-fit">
+          <button
+            onClick={() => setSection("payments")}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              section === "payments" ? "bg-slate-600 text-white" : "text-slate-400"
+            }`}
+          >
+            Платежи
+          </button>
+          <button
+            onClick={() => setSection("tariffs")}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              section === "tariffs" ? "bg-slate-600 text-white" : "text-slate-400"
+            }`}
+          >
+            Тарифы
+          </button>
+        </div>
+
+        {section === "tariffs" && <TariffsEditor login={login} password={password} />}
+
+        {section === "payments" && summary && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Card className="border-slate-800 bg-slate-900">
               <CardContent className="p-4">
@@ -195,6 +218,8 @@ const AdminPaymentsPage = () => {
           </div>
         )}
 
+        {section === "payments" && (
+        <>
         <div className="flex items-center gap-3">
           <Input
             placeholder="Поиск: логин, ФИО, договор, заказ"
@@ -273,6 +298,8 @@ const AdminPaymentsPage = () => {
             </table>
           </CardContent>
         </Card>
+        </>
+        )}
       </div>
     </div>
   );
