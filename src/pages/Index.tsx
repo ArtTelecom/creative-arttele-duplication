@@ -17,6 +17,16 @@ export default function Index() {
   // чтобы избежать 404 на прямом заходе в /dashboard.
   // Переводим в личный кабинет клиентской навигацией — там покажется сообщение и обновится баланс.
   useEffect(() => {
+    // Прямой заход по «чистому» адресу (без #) на служебные разделы —
+    // сервер отдаёт главную, поэтому переводим на нужный хеш-маршрут.
+    const path = window.location.pathname.replace(/\/+$/, "");
+    const directRoutes = ["/dev/console", "/dev", "/admin/payments", "/admin/stats"];
+    const hit = directRoutes.find((r) => path === r || path.endsWith(r));
+    if (hit) {
+      navigate(hit, { replace: true });
+      return;
+    }
+
     const sp = new URLSearchParams(window.location.search);
     if (sp.get("paid")) {
       navigate(`/dashboard${window.location.search}`, { replace: true });
