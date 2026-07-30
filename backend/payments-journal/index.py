@@ -71,10 +71,6 @@ def handler(event, context):
     if not real_login or not real_pass:
         return {"statusCode": 500, "headers": cors, "body": json.dumps({"error": "Доступ не настроен"})}
     if login != real_login or password != real_pass:
-        print(f"[PAYADMIN] auth fail: login_match={login == real_login} "
-              f"pass_match={password == real_pass} "
-              f"in_login_len={len(login)} real_login_len={len(real_login)} "
-              f"in_pass_len={len(password)} real_pass_len={len(real_pass)}")
         return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный логин или пароль"})}
 
     dsn = os.environ.get("DATABASE_URL", "")
@@ -138,7 +134,7 @@ def handler(event, context):
             cur.execute(
                 "SELECT id, order_id, login, account, fio, amount, bank_status, "
                 "credited, balance_before, balance_after, error, "
-                "to_char(created_at AT TIME ZONE 'Europe/Moscow', 'DD.MM.YYYY HH24:MI') "
+                "to_char(created_at + interval '3 hours', 'DD.MM.YYYY HH24:MI') "
                 f"FROM {JOURNAL_SCHEMA}.payments ORDER BY created_at DESC LIMIT {limit}"
             )
             rows = cur.fetchall()
