@@ -25,6 +25,14 @@ export type Service = {
 
 export type SiteSettings = Record<string, string>;
 
+export type Social = {
+  id?: number;
+  name: string;
+  src: string;
+  bg: string;
+  url: string;
+};
+
 const post = (action: string) =>
   fetch(`${BASE}?action=${action}`, {
     method: "POST",
@@ -89,4 +97,23 @@ export function useSiteSettings(fallback: SiteSettings) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return settings;
+}
+
+let socialCache: Social[] | null = null;
+export function useSocials(fallback: Social[]) {
+  const [socials, setSocials] = useState<Social[]>(socialCache || fallback);
+  useEffect(() => {
+    let alive = true;
+    post("list_socials")
+      .then((j) => {
+        if (!alive || !j || !Array.isArray(j.socials) || !j.socials.length) return;
+        socialCache = j.socials;
+        setSocials(j.socials);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return socials;
 }

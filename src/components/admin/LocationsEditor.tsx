@@ -314,6 +314,19 @@ const LocationsEditor = ({ login, password }: { login: string; password: string 
                             />
                             Популярный
                           </label>
+                          <label className="flex items-center gap-1 text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={t.features.includes("__social__")}
+                              onChange={(e) => {
+                                const base = t.features.filter((f) => f !== "__social__");
+                                updateTariff(l.id, idx, {
+                                  features: e.target.checked ? [...base, "__social__"] : base,
+                                });
+                              }}
+                            />
+                            Соцсети
+                          </label>
                           <button
                             onClick={() => removeTariff(l.id, idx)}
                             className="text-red-400 hover:text-red-300 px-2 ml-auto"
@@ -323,9 +336,14 @@ const LocationsEditor = ({ login, password }: { login: string; password: string 
                           </button>
                         </div>
                         <textarea
-                          value={t.features.join("\n")}
+                          value={t.features.filter((f) => f !== "__social__").join("\n")}
                           placeholder="Опции (каждая с новой строки)"
-                          onChange={(e) => updateTariff(l.id, idx, { features: e.target.value.split("\n") })}
+                          onChange={(e) => {
+                            const lines = e.target.value.split("\n");
+                            updateTariff(l.id, idx, {
+                              features: t.features.includes("__social__") ? [...lines, "__social__"] : lines,
+                            });
+                          }}
                           rows={Math.max(2, t.features.length)}
                           className="w-full rounded-md border border-slate-700 bg-slate-800 p-2 text-sm text-white"
                         />

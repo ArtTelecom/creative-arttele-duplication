@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Icon from "@/components/ui/icon";
 import useLocations from "@/hooks/useLocations";
-import { useTvTariffs } from "@/hooks/useSiteContent";
+import { useTvTariffs, useSocials } from "@/hooks/useSiteContent";
 
 const colorMap = {
   blue:   { border: "rgba(0,212,255,0.3)",  bg: "rgba(0,212,255,0.08)",  text: "var(--neon-blue)",  badge: "rgba(0,212,255,0.15)" },
@@ -22,13 +22,13 @@ const badgeColor: Record<string, string> = {
   "Новинка":   "rgba(249,115,22,0.15)",
 };
 
-const SOCIAL_ICONS = [
-  { name: "WhatsApp",  src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/whatsapp.svg",  bg: "#25D366" },
-  { name: "YouTube",   src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/youtube.svg",   bg: "#FF0000" },
-  { name: "Telegram",  src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/telegram.svg",  bg: "#26A5E4" },
-  { name: "Viber",     src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/viber.svg",     bg: "#7360F2" },
-  { name: "Instagram", src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/instagram.svg", bg: "#E4405F" },
-  { name: "Threads",   src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/threads.svg",   bg: "#101010" },
+const DEFAULT_SOCIALS = [
+  { name: "WhatsApp",  src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/whatsapp.svg",  bg: "#25D366", url: "" },
+  { name: "YouTube",   src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/youtube.svg",   bg: "#FF0000", url: "" },
+  { name: "Telegram",  src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/telegram.svg",  bg: "#26A5E4", url: "" },
+  { name: "Viber",     src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/viber.svg",     bg: "#7360F2", url: "" },
+  { name: "Instagram", src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/instagram.svg", bg: "#E4405F", url: "" },
+  { name: "Threads",   src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/threads.svg",   bg: "#101010", url: "" },
 ];
 
 // Тарифы Интернет+ТВ (цена = интернет + надбавка за ТВ) — запасные значения
@@ -106,6 +106,7 @@ export default function LocationPage() {
   const { slug } = useParams<{ slug: string }>();
   const { locations } = useLocations();
   const tvTariffs = useTvTariffs(defaultTvTariffs as never);
+  const SOCIAL_ICONS = useSocials(DEFAULT_SOCIALS);
   const loc = locations.find(l => l.slug === slug);
   const [tab, setTab] = useState<"internet" | "tv">("internet");
 
@@ -237,11 +238,17 @@ export default function LocationPage() {
                               <li key={fi} className="pt-1">
                                 <div className="text-white/40 text-xs mb-2">Включены без ограничений:</div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  {SOCIAL_ICONS.map((s) => (
-                                    <div key={s.name} title={s.name} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: s.bg }}>
-                                      <img src={s.src} alt={s.name} className="w-4 h-4 invert" />
-                                    </div>
-                                  ))}
+                                  {SOCIAL_ICONS.map((s) =>
+                                    s.url ? (
+                                      <a key={s.name} href={s.url} target="_blank" rel="noopener noreferrer" title={s.name} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: s.bg }}>
+                                        <img src={s.src} alt={s.name} className="w-4 h-4 invert" />
+                                      </a>
+                                    ) : (
+                                      <div key={s.name} title={s.name} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: s.bg }}>
+                                        <img src={s.src} alt={s.name} className="w-4 h-4 invert" />
+                                      </div>
+                                    )
+                                  )}
                                 </div>
                               </li>
                             ) : (
@@ -438,11 +445,17 @@ export default function LocationPage() {
                               <li key={fi} className="pt-1">
                                 <div className="text-white/40 text-xs mb-2">Соцсети без ограничений:</div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  {SOCIAL_ICONS.map((s) => (
-                                    <div key={s.name} title={s.name} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: s.bg }}>
-                                      <img src={s.src} alt={s.name} className="w-4 h-4 invert" />
-                                    </div>
-                                  ))}
+                                  {SOCIAL_ICONS.map((s) =>
+                                    s.url ? (
+                                      <a key={s.name} href={s.url} target="_blank" rel="noopener noreferrer" title={s.name} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: s.bg }}>
+                                        <img src={s.src} alt={s.name} className="w-4 h-4 invert" />
+                                      </a>
+                                    ) : (
+                                      <div key={s.name} title={s.name} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: s.bg }}>
+                                        <img src={s.src} alt={s.name} className="w-4 h-4 invert" />
+                                      </div>
+                                    )
+                                  )}
                                 </div>
                               </li>
                             ) : (

@@ -9,6 +9,7 @@ import LocationsEditor from "@/components/admin/LocationsEditor";
 import TvTariffsEditor from "@/components/admin/TvTariffsEditor";
 import ServicesEditor from "@/components/admin/ServicesEditor";
 import ContactsEditor from "@/components/admin/ContactsEditor";
+import SocialsEditor from "@/components/admin/SocialsEditor";
 
 const API_URL = "https://functions.poehali.dev/8df3bbb2-ef10-420a-95ca-13829e20eae1";
 const CREDS_KEY = "art_pay_admin";
@@ -49,7 +50,7 @@ const AdminPaymentsPage = () => {
   const [query, setQuery] = useState("");
   const [creditingId, setCreditingId] = useState<number | null>(null);
   const [section, setSection] = useState<
-    "payments" | "tariffs" | "locations" | "tv" | "services" | "contacts"
+    "payments" | "tariffs" | "locations" | "tv" | "services" | "contacts" | "socials"
   >("payments");
 
   const manualCredit = async (p: Payment) => {
@@ -211,6 +212,7 @@ const AdminPaymentsPage = () => {
             ["locations", "Районы и акции"],
             ["tv", "ТВ-тарифы"],
             ["services", "Услуги"],
+            ["socials", "Соцсети"],
             ["contacts", "Контакты"],
           ] as const).map(([key, label]) => (
             <button
@@ -229,6 +231,7 @@ const AdminPaymentsPage = () => {
         {section === "locations" && <LocationsEditor login={login} password={password} />}
         {section === "tv" && <TvTariffsEditor login={login} password={password} />}
         {section === "services" && <ServicesEditor login={login} password={password} />}
+        {section === "socials" && <SocialsEditor login={login} password={password} />}
         {section === "contacts" && <ContactsEditor login={login} password={password} />}
 
         {section === "payments" && summary && (

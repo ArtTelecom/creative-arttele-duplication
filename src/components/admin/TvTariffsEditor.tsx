@@ -137,11 +137,25 @@ const TvTariffsEditor = ({ login, password }: { login: string; password: string 
                 <Label className="text-xs text-slate-400">Плашка акции (необязательно)</Label>
                 <Input value={t.promo} placeholder="Напр. Приставка в подарок" onChange={(e) => update(idx, { promo: e.target.value })} />
               </div>
+              <label className="flex items-center gap-2 text-sm text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={t.features.includes("__social__")}
+                  onChange={(e) => {
+                    const base = t.features.filter((f) => f !== "__social__");
+                    update(idx, { features: e.target.checked ? [...base, "__social__"] : base });
+                  }}
+                />
+                Значки соцсетей
+              </label>
               <div className="space-y-1">
                 <Label className="text-xs text-slate-400">Опции (каждая с новой строки)</Label>
                 <textarea
-                  value={t.features.join("\n")}
-                  onChange={(e) => update(idx, { features: e.target.value.split("\n") })}
+                  value={t.features.filter((f) => f !== "__social__").join("\n")}
+                  onChange={(e) => {
+                    const lines = e.target.value.split("\n");
+                    update(idx, { features: t.features.includes("__social__") ? [...lines, "__social__"] : lines });
+                  }}
                   rows={Math.max(3, t.features.length)}
                   className="w-full rounded-md border border-slate-700 bg-slate-800 p-2 text-sm text-white"
                 />

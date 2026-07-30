@@ -56,6 +56,16 @@ const TariffsEditor = ({ login, password }: { login: string; password: string })
     setList((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   };
 
+  const toggleSocial = (id: number, on: boolean) => {
+    setList((prev) =>
+      prev.map((t) => {
+        if (t.id !== id) return t;
+        const base = t.features.filter((f) => f !== "__social__");
+        return { ...t, features: on ? [...base, "__social__"] : base };
+      })
+    );
+  };
+
   const save = async () => {
     setSaving(true);
     setMsg("");
@@ -155,7 +165,7 @@ const TariffsEditor = ({ login, password }: { login: string; password: string })
                     ))}
                   </select>
                 </div>
-                <div className="flex items-end pb-2">
+                <div className="flex items-end pb-2 gap-4">
                   <label className="flex items-center gap-2 text-sm text-slate-300">
                     <input
                       type="checkbox"
@@ -165,12 +175,26 @@ const TariffsEditor = ({ login, password }: { login: string; password: string })
                     Популярный
                   </label>
                 </div>
+                <label className="flex items-center gap-2 text-sm text-slate-300 pb-2">
+                  <input
+                    type="checkbox"
+                    checked={t.features.includes("__social__")}
+                    onChange={(e) => toggleSocial(t.id, e.target.checked)}
+                  />
+                  Значки соцсетей
+                </label>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-slate-400">Опции (каждая с новой строки)</Label>
                 <textarea
-                  value={t.features.join("\n")}
-                  onChange={(e) => update(t.id, { features: e.target.value.split("\n") })}
+                  value={t.features.filter((f) => f !== "__social__").join("\n")}
+                  onChange={(e) =>
+                    update(t.id, {
+                      features: t.features.includes("__social__")
+                        ? [...e.target.value.split("\n"), "__social__"]
+                        : e.target.value.split("\n"),
+                    })
+                  }
                   rows={Math.max(3, t.features.length)}
                   className="w-full rounded-md border border-slate-700 bg-slate-800 p-2 text-sm text-white"
                 />

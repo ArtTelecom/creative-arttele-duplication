@@ -248,6 +248,44 @@ def handler(event, context):
             conn.close()
         return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
 
+    # ── Соцсети: чтение ──
+    if action == "list_socials":
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, name, src, bg, url "
+                    f"FROM {SCHEMA}.socials ORDER BY sort_order, id"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps(
+            {"socials": [{"id": r[0], "name": r[1], "src": r[2], "bg": r[3], "url": r[4]} for r in rows]},
+            ensure_ascii=False)}
+
+    # ── Соцсети: сохранение (полная замена) ──
+    if action == "save_socials":
+        if not _check_admin(event, body):
+            return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный логин или пароль"})}
+        items = body.get("items", [])
+        if not isinstance(items, list):
+            return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Нет данных"})}
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {SCHEMA}.socials")
+                for i, it in enumerate(items):
+                    cur.execute(
+                        f"INSERT INTO {SCHEMA}.socials (name, src, bg, url, sort_order) "
+                        f"VALUES ({_esc(it.get('name',''))}, {_esc(it.get('src',''))}, "
+                        f"{_esc(it.get('bg','#000000'))}, {_esc(it.get('url',''))}, {i + 1})"
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
     # ── Настройки сайта (контакты): чтение ──
     if action == "list_settings":
         conn = psycopg2.connect(dsn)
