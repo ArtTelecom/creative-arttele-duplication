@@ -7,6 +7,8 @@ import urllib.error
 
 TBANK_INIT_URL = "https://securepay.tinkoff.ru/v2/Init"
 
+JOURNAL_SCHEMA = "t_p33656588_creative_arttele_dup"
+
 
 def _cors():
     return {
@@ -299,6 +301,47 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     print(f"[TBANK] telegram notify GAVE UP after 3 attempts: {last_err}")
 
 
+def _journal_payment(order_id: str, login: str, amount: float, status: str,
+                     payment_id: str, credit_result: dict, raw_body: str) -> None:
+    """Пишет запись о каждом уведомлении банка в журнал платежей (PostgreSQL).
+    Не влияет на приём платежа: любые ошибки только логируются."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        print("[TBANK] journal skipped: DATABASE_URL not set")
+        return
+    cr = credit_result or {}
+    credited = bool(cr.get("ok"))
+    account = str(cr.get("account", "") or "")
+    fio = str(cr.get("fio", "") or "")
+    balance_before = str(cr.get("balance_before", "") or "")
+    balance_after = str(cr.get("balance_after", "") or "")
+    error = str(cr.get("error", "") or "")
+
+    def esc(v):
+        return "'" + str(v).replace("'", "''") + "'"
+
+    try:
+        import psycopg2
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"INSERT INTO {JOURNAL_SCHEMA}.payments "
+                    "(order_id, login, account, fio, amount, bank_status, payment_id, "
+                    "credited, balance_before, balance_after, error, raw_body) VALUES ("
+                    f"{esc(order_id)}, {esc(login)}, {esc(account)}, {esc(fio)}, "
+                    f"{amount if amount else 0}, {esc(status)}, {esc(payment_id)}, "
+                    f"{'TRUE' if credited else 'FALSE'}, {esc(balance_before)}, "
+                    f"{esc(balance_after)}, {esc(error)}, {esc(raw_body[:4000])})"
+                )
+            conn.commit()
+            print(f"[TBANK] journal saved order={order_id} status={status} credited={credited}")
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[TBANK] journal failed order={order_id}: {e}")
+
+
 def handler(event, context):
     """Оплата Т-Банком: создание платёжной ссылки (action=create) и приём webhook от банка (action=notify) с зачислением на счёт абонента."""
     method = event.get("httpMethod", "GET")
@@ -430,6 +473,7 @@ def handler(event, context):
 
         status = data.get("Status", "")
         order_id = str(data.get("OrderId", ""))
+        payment_id = str(data.get("PaymentId", "") or "")
         print(f"[TBANK] notify status={status} order={order_id} success={data.get('Success')}")
 
         recv_token = data.get("Token", "")
@@ -439,20 +483,23 @@ def handler(event, context):
             print(f"[TBANK] bad token order={order_id} recv={recv_token[:12]}... exp={expected[:12]}...")
             return {"statusCode": 200, "headers": cors, "body": "OK"}
 
+        login = order_id.rsplit("-", 1)[0] if order_id else ""
+        extra = data.get("DATA") or {}
+        if isinstance(extra, dict) and extra.get("login"):
+            login = extra["login"]
+        amount = float(data.get("Amount", 0)) / 100.0
+
         if status in ("CONFIRMED", "AUTHORIZED") and order_id:
-            login = order_id.rsplit("-", 1)[0]
-            extra = data.get("DATA") or {}
-            if isinstance(extra, dict) and extra.get("login"):
-                login = extra["login"]
-            amount = float(data.get("Amount", 0)) / 100.0
             result = _credit_via_kassa(login, amount, order_id)
             print(f"[TBANK] credit login={login} amount={amount} order={order_id} -> {result}")
             # Уведомление в Telegram — только на финальном статусе CONFIRMED,
             # чтобы не приходило два сообщения (на AUTHORIZED и на CONFIRMED)
             if status == "CONFIRMED":
                 _notify_telegram(login, amount, order_id, result)
+                _journal_payment(order_id, login, amount, status, payment_id, result, raw)
         else:
             print(f"[TBANK] notify ignored status={status}")
+            _journal_payment(order_id, login, amount, status, payment_id, {}, raw)
 
         return {"statusCode": 200, "headers": cors, "body": "OK"}
 
