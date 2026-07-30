@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Icon from "@/components/ui/icon";
 import useLocations from "@/hooks/useLocations";
+import { useTvTariffs } from "@/hooks/useSiteContent";
 
 const colorMap = {
   blue:   { border: "rgba(0,212,255,0.3)",  bg: "rgba(0,212,255,0.08)",  text: "var(--neon-blue)",  badge: "rgba(0,212,255,0.15)" },
@@ -30,8 +31,8 @@ const SOCIAL_ICONS = [
   { name: "Threads",   src: "https://cdn.jsdelivr.net/gh/simple-icons/simple-icons/icons/threads.svg",   bg: "#101010" },
 ];
 
-// Тарифы Интернет+ТВ (цена = интернет + надбавка за ТВ)
-const tvTariffs = [
+// Тарифы Интернет+ТВ (цена = интернет + надбавка за ТВ) — запасные значения
+const defaultTvTariffs = [
   {
     name: "Старт + ТВ",
     internet: "50",
@@ -104,6 +105,7 @@ const tvPromos = [
 export default function LocationPage() {
   const { slug } = useParams<{ slug: string }>();
   const { locations } = useLocations();
+  const tvTariffs = useTvTariffs(defaultTvTariffs as never);
   const loc = locations.find(l => l.slug === slug);
   const [tab, setTab] = useState<"internet" | "tv">("internet");
 

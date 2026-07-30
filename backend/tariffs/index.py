@@ -52,6 +52,31 @@ def _row_to_location(r):
     }
 
 
+def _row_to_tv(r):
+    return {
+        "id": r[0],
+        "name": r[1],
+        "internet": r[2],
+        "price": r[3],
+        "channels": r[4],
+        "color": r[5],
+        "popular": bool(r[6]),
+        "promo": r[7],
+        "features": r[8] if isinstance(r[8], list) else json.loads(r[8] or "[]"),
+    }
+
+
+def _row_to_service(r):
+    return {
+        "id": r[0],
+        "icon": r[1],
+        "title": r[2],
+        "descr": r[3],
+        "tag": r[4],
+        "color": r[5],
+    }
+
+
 def handler(event, context):
     """Тарифы: публичное чтение списка (GET) и сохранение из личного кабинета владельца по логину/паролю (POST action=save)."""
     method = event.get("httpMethod", "GET")
@@ -137,6 +162,124 @@ def handler(event, context):
                         f"UPDATE {SCHEMA}.locations SET name={name}, description={desc}, "
                         f"available={available}, promos={promos_json}::jsonb, "
                         f"tariffs={tariffs_json}::jsonb, updated_at=now() WHERE id={lid}"
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+    # ── ТВ-тарифы: чтение ──
+    if action == "list_tv":
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, name, internet, price, channels, color, popular, promo, features "
+                    f"FROM {SCHEMA}.tv_tariffs ORDER BY sort_order, id"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps(
+            {"tv": [_row_to_tv(r) for r in rows]}, ensure_ascii=False)}
+
+    # ── ТВ-тарифы: сохранение (полная замена) ──
+    if action == "save_tv":
+        if not _check_admin(event, body):
+            return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный логин или пароль"})}
+        items = body.get("items", [])
+        if not isinstance(items, list):
+            return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Нет данных"})}
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {SCHEMA}.tv_tariffs")
+                for i, it in enumerate(items):
+                    feats = it.get("features", [])
+                    if not isinstance(feats, list):
+                        feats = []
+                    cur.execute(
+                        f"INSERT INTO {SCHEMA}.tv_tariffs (name, internet, price, channels, color, popular, promo, features, sort_order) "
+                        f"VALUES ({_esc(it.get('name',''))}, {_esc(it.get('internet',''))}, {_esc(it.get('price',''))}, "
+                        f"{_esc(it.get('channels',''))}, {_esc(it.get('color','blue'))}, "
+                        f"{'TRUE' if it.get('popular') else 'FALSE'}, {_esc(it.get('promo',''))}, "
+                        f"{_esc(json.dumps(feats, ensure_ascii=False))}::jsonb, {i + 1})"
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+    # ── Услуги на главной: чтение ──
+    if action == "list_services":
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, icon, title, descr, tag, color "
+                    f"FROM {SCHEMA}.services ORDER BY sort_order, id"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps(
+            {"services": [_row_to_service(r) for r in rows]}, ensure_ascii=False)}
+
+    # ── Услуги: сохранение (полная замена) ──
+    if action == "save_services":
+        if not _check_admin(event, body):
+            return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный логин или пароль"})}
+        items = body.get("items", [])
+        if not isinstance(items, list):
+            return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Нет данных"})}
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {SCHEMA}.services")
+                for i, it in enumerate(items):
+                    cur.execute(
+                        f"INSERT INTO {SCHEMA}.services (icon, title, descr, tag, color, sort_order) "
+                        f"VALUES ({_esc(it.get('icon','Zap'))}, {_esc(it.get('title',''))}, "
+                        f"{_esc(it.get('descr',''))}, {_esc(it.get('tag',''))}, "
+                        f"{_esc(it.get('color','blue'))}, {i + 1})"
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True})}
+
+    # ── Настройки сайта (контакты): чтение ──
+    if action == "list_settings":
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT skey, svalue, label "
+                    f"FROM {SCHEMA}.site_settings ORDER BY sort_order, skey"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors, "body": json.dumps(
+            {"settings": [{"key": r[0], "value": r[1], "label": r[2]} for r in rows]}, ensure_ascii=False)}
+
+    # ── Настройки: сохранение ──
+    if action == "save_settings":
+        if not _check_admin(event, body):
+            return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный логин или пароль"})}
+        items = body.get("items", [])
+        if not isinstance(items, list):
+            return {"statusCode": 400, "headers": cors, "body": json.dumps({"error": "Нет данных"})}
+        conn = psycopg2.connect(dsn)
+        try:
+            with conn.cursor() as cur:
+                for it in items:
+                    key = str(it.get("key", "")).strip()
+                    if not key:
+                        continue
+                    cur.execute(
+                        f"UPDATE {SCHEMA}.site_settings SET svalue={_esc(it.get('value',''))}, "
+                        f"updated_at=now() WHERE skey={_esc(key)}"
                     )
             conn.commit()
         finally:

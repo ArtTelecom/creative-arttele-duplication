@@ -3,14 +3,15 @@ import { Link, useNavigate } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import useTariffs from "@/hooks/useTariffs";
 import useLocations from "@/hooks/useLocations";
+import { useServices } from "@/hooks/useSiteContent";
 
-const services = [
-  { icon: "Zap", title: "Домашний интернет", desc: "Оптоволокно прямо в квартиру. Скорость до 1 Гбит/с без скачков и обрывов — смотрите, играйте, работайте.", tag: "До 1 Гбит/с", color: "blue" },
-  { icon: "Building2", title: "Бизнес-интернет", desc: "Выделенный канал с гарантированной скоростью и SLA 99.9%. Персональный менеджер и приоритетная поддержка.", tag: "SLA 99.9%", color: "green" },
-  { icon: "Tv", title: "Цифровое ТВ", desc: "450+ каналов в HD и 4K качестве. Запись эфира, пауза и перемотка прямого эфира на любом устройстве.", tag: "450+ каналов", color: "purple" },
-  { icon: "Phone", title: "IP-телефония", desc: "Городской номер, бесплатные звонки внутри сети, конференц-связь и детализация в личном кабинете.", tag: "Безлимит внутри", color: "blue" },
-  { icon: "Shield", title: "Антивирус и защита", desc: "Защита от вирусов, фишинга и нежелательной рекламы на уровне сети. Работает на всех устройствах.", tag: "Всегда включён", color: "green" },
-  { icon: "Wifi", title: "Wi-Fi роутер", desc: "Современный роутер Wi-Fi 6 в аренду или подарок при подключении к тарифу Максимум.", tag: "Wi-Fi 6", color: "purple" },
+const defaultServices = [
+  { icon: "Zap", title: "Домашний интернет", descr: "Оптоволокно прямо в квартиру. Скорость до 1 Гбит/с без скачков и обрывов — смотрите, играйте, работайте.", tag: "До 1 Гбит/с", color: "blue" },
+  { icon: "Building2", title: "Бизнес-интернет", descr: "Выделенный канал с гарантированной скоростью и SLA 99.9%. Персональный менеджер и приоритетная поддержка.", tag: "SLA 99.9%", color: "green" },
+  { icon: "Tv", title: "Цифровое ТВ", descr: "450+ каналов в HD и 4K качестве. Запись эфира, пауза и перемотка прямого эфира на любом устройстве.", tag: "450+ каналов", color: "purple" },
+  { icon: "Phone", title: "IP-телефония", descr: "Городской номер, бесплатные звонки внутри сети, конференц-связь и детализация в личном кабинете.", tag: "Безлимит внутри", color: "blue" },
+  { icon: "Shield", title: "Антивирус и защита", descr: "Защита от вирусов, фишинга и нежелательной рекламы на уровне сети. Работает на всех устройствах.", tag: "Всегда включён", color: "green" },
+  { icon: "Wifi", title: "Wi-Fi роутер", descr: "Современный роутер Wi-Fi 6 в аренду или подарок при подключении к тарифу Максимум.", tag: "Wi-Fi 6", color: "purple" },
 ];
 
 export default function ServicesAndTariffs() {
@@ -18,6 +19,7 @@ export default function ServicesAndTariffs() {
   const navigate = useNavigate();
   const { home: tariffs } = useTariffs();
   const { locations } = useLocations();
+  const services = useServices(defaultServices);
 
   return (
     <>
@@ -100,7 +102,7 @@ export default function ServicesAndTariffs() {
                     <h3 className="font-semibold text-lg text-white">{svc.title}</h3>
                     <span className="text-xs px-2 py-0.5 rounded-full font-medium ml-2 shrink-0" style={{ background: bg, color: textClr }}>{svc.tag}</span>
                   </div>
-                  <p className="text-white/50 text-sm leading-relaxed">{svc.desc}</p>
+                  <p className="text-white/50 text-sm leading-relaxed">{svc.descr}</p>
                   <div className="mt-4 flex items-center gap-1 text-sm font-semibold text-white/30 group-hover:text-[#00d4ff] transition-colors">
                     Подробнее <Icon name="ArrowRight" size={14} />
                   </div>

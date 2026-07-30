@@ -6,6 +6,9 @@ import { Label } from "@/components/ui/label";
 import Icon from "@/components/ui/icon";
 import TariffsEditor from "@/components/admin/TariffsEditor";
 import LocationsEditor from "@/components/admin/LocationsEditor";
+import TvTariffsEditor from "@/components/admin/TvTariffsEditor";
+import ServicesEditor from "@/components/admin/ServicesEditor";
+import ContactsEditor from "@/components/admin/ContactsEditor";
 
 const API_URL = "https://functions.poehali.dev/8df3bbb2-ef10-420a-95ca-13829e20eae1";
 const CREDS_KEY = "art_pay_admin";
@@ -45,7 +48,9 @@ const AdminPaymentsPage = () => {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [creditingId, setCreditingId] = useState<number | null>(null);
-  const [section, setSection] = useState<"payments" | "tariffs" | "locations">("payments");
+  const [section, setSection] = useState<
+    "payments" | "tariffs" | "locations" | "tv" | "services" | "contacts"
+  >("payments");
 
   const manualCredit = async (p: Payment) => {
     if (!confirm(`Зачислить ${p.amount.toFixed(2)} ₽ абоненту ${p.fio || p.login}?`)) return;
@@ -199,35 +204,32 @@ const AdminPaymentsPage = () => {
           </Button>
         </div>
 
-        <div className="flex gap-1 rounded-lg bg-slate-800 p-1 w-fit">
-          <button
-            onClick={() => setSection("payments")}
-            className={`px-4 py-2 rounded-md text-sm font-medium ${
-              section === "payments" ? "bg-slate-600 text-white" : "text-slate-400"
-            }`}
-          >
-            Платежи
-          </button>
-          <button
-            onClick={() => setSection("tariffs")}
-            className={`px-4 py-2 rounded-md text-sm font-medium ${
-              section === "tariffs" ? "bg-slate-600 text-white" : "text-slate-400"
-            }`}
-          >
-            Тарифы
-          </button>
-          <button
-            onClick={() => setSection("locations")}
-            className={`px-4 py-2 rounded-md text-sm font-medium ${
-              section === "locations" ? "bg-slate-600 text-white" : "text-slate-400"
-            }`}
-          >
-            Районы и акции
-          </button>
+        <div className="flex gap-1 rounded-lg bg-slate-800 p-1 w-fit flex-wrap">
+          {([
+            ["payments", "Платежи"],
+            ["tariffs", "Тарифы"],
+            ["locations", "Районы и акции"],
+            ["tv", "ТВ-тарифы"],
+            ["services", "Услуги"],
+            ["contacts", "Контакты"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setSection(key)}
+              className={`px-4 py-2 rounded-md text-sm font-medium ${
+                section === key ? "bg-slate-600 text-white" : "text-slate-400"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         {section === "tariffs" && <TariffsEditor login={login} password={password} />}
         {section === "locations" && <LocationsEditor login={login} password={password} />}
+        {section === "tv" && <TvTariffsEditor login={login} password={password} />}
+        {section === "services" && <ServicesEditor login={login} password={password} />}
+        {section === "contacts" && <ContactsEditor login={login} password={password} />}
 
         {section === "payments" && summary && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

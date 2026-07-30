@@ -4,8 +4,17 @@ import Icon from "@/components/ui/icon";
 import { toast } from "sonner";
 import funcUrls from "../../../backend/func2url.json";
 import InstallAppButton from "@/components/InstallAppButton";
+import { useSiteSettings } from "@/hooks/useSiteContent";
+
+const CONTACT_DEFAULTS = {
+  phone: "+7 902 404-88-50",
+  phone_sub: "Бесплатно по России",
+  email: "art888018@mail.ru",
+  company: "АртТелеком Юг",
+};
 
 export default function LkAndFooter() {
+  const site = useSiteSettings(CONTACT_DEFAULTS);
   const [lkTab, setLkTab] = useState<"dashboard" | "bills" | "support">("dashboard");
   const [lkOpen, setLkOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -70,8 +79,8 @@ export default function LkAndFooter() {
           <div className="grid lg:grid-cols-2 gap-10">
             <div className="space-y-4">
               {[
-                { icon: "Phone", label: "Единый номер", val: "+7 902 404-88-50", sub: "Бесплатно по России" },
-                { icon: "Mail", label: "Email", val: "art888018@mail.ru", sub: "Ответим в течение 2 часов" },
+                { icon: "Phone", label: "Единый номер", val: site.phone, sub: site.phone_sub || "Бесплатно по России" },
+                { icon: "Mail", label: "Email", val: site.email, sub: "Ответим в течение 2 часов" },
                 { icon: "MapPin", label: "Головной офис", val: "Москва, ул. Цифровая, 1", sub: "Пн–Пт 9:00–18:00" },
                 { icon: "MessageCircle", label: "Онлайн-чат", val: "В личном кабинете", sub: "24/7 без ожидания" },
               ].map((c, i) => (
@@ -198,7 +207,7 @@ export default function LkAndFooter() {
           </div>
           <div className="section-divider mb-6" />
           <div className="flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-white/65">
-            <span>© 2026 АртТелеком Юг. Все права защищены.</span>
+            <span>© 2026 {site.company}. Все права защищены.</span>
             <div className="flex gap-6 flex-wrap justify-center">
               {[
                 { label: "Документы и договоры", href: "/documents" },
