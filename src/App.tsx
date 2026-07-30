@@ -1,31 +1,33 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter as BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
-import TariffsPage from "./pages/TariffsPage";
-import BusinessPage from "./pages/BusinessPage";
-import LocationsListPage from "./pages/LocationsListPage";
-import LocationPage from "./pages/LocationPage";
-import AboutPage from "./pages/AboutPage";
-import BlogPage from "./pages/BlogPage";
-import FaqPage from "./pages/FaqPage";
-import ContactsPage from "./pages/ContactsPage";
-import SpeedTestPage from "./pages/SpeedTestPage";
-import VideoSurveillancePage from "./pages/VideoSurveillancePage";
-import CloudVideoPage from "./pages/CloudVideoPage";
-import CloudCabinetPage from "./pages/CloudCabinetPage";
-import CloudLoginPage from "./pages/CloudLoginPage";
-import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
-import AdminStatsPage from "./pages/AdminStatsPage";
-import StatusPage from "./pages/StatusPage";
-import RequisitesPage from "./pages/RequisitesPage";
-import OfferPage from "./pages/OfferPage";
-import DocumentsPage from "./pages/DocumentsPage";
-import NotFound from "./pages/NotFound";
 import ChatWidget from "./components/ChatWidget";
+
+const TariffsPage = lazy(() => import("./pages/TariffsPage"));
+const BusinessPage = lazy(() => import("./pages/BusinessPage"));
+const LocationsListPage = lazy(() => import("./pages/LocationsListPage"));
+const LocationPage = lazy(() => import("./pages/LocationPage"));
+const AboutPage = lazy(() => import("./pages/AboutPage"));
+const BlogPage = lazy(() => import("./pages/BlogPage"));
+const FaqPage = lazy(() => import("./pages/FaqPage"));
+const ContactsPage = lazy(() => import("./pages/ContactsPage"));
+const SpeedTestPage = lazy(() => import("./pages/SpeedTestPage"));
+const VideoSurveillancePage = lazy(() => import("./pages/VideoSurveillancePage"));
+const CloudVideoPage = lazy(() => import("./pages/CloudVideoPage"));
+const CloudCabinetPage = lazy(() => import("./pages/CloudCabinetPage"));
+const CloudLoginPage = lazy(() => import("./pages/CloudLoginPage"));
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const AdminStatsPage = lazy(() => import("./pages/AdminStatsPage"));
+const StatusPage = lazy(() => import("./pages/StatusPage"));
+const RequisitesPage = lazy(() => import("./pages/RequisitesPage"));
+const OfferPage = lazy(() => import("./pages/OfferPage"));
+const DocumentsPage = lazy(() => import("./pages/DocumentsPage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -35,6 +37,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/tariffs" element={<TariffsPage />} />
@@ -60,6 +63,7 @@ const App = () => (
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
         <ChatWidget />
       </BrowserRouter>
     </TooltipProvider>
