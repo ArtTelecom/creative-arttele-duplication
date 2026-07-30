@@ -42,6 +42,34 @@ const AdminPaymentsPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [creditingId, setCreditingId] = useState<number | null>(null);
+
+  const manualCredit = async (p: Payment) => {
+    if (!confirm(`Зачислить ${p.amount.toFixed(2)} ₽ абоненту ${p.fio || p.login}?`)) return;
+    setCreditingId(p.id);
+    setError("");
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Login": login,
+          "X-Admin-Password": password,
+        },
+        body: JSON.stringify({ action: "manual_credit", id: p.id }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await load(login, password);
+      } else {
+        setError(data.error || "Не удалось зачислить");
+      }
+    } catch {
+      setError("Не удалось подключиться");
+    } finally {
+      setCreditingId(null);
+    }
+  };
 
   const load = async (l: string, p: string) => {
     setLoading(true);
@@ -193,6 +221,7 @@ const AdminPaymentsPage = () => {
                   <th className="p-3">Статус банка</th>
                   <th className="p-3">Зачислено</th>
                   <th className="p-3">Баланс</th>
+                  <th className="p-3"></th>
                 </tr>
               </thead>
               <tbody>
@@ -220,11 +249,22 @@ const AdminPaymentsPage = () => {
                     <td className="p-3 text-xs text-slate-400 whitespace-nowrap">
                       {p.balance_before} → {p.balance_after || "—"}
                     </td>
+                    <td className="p-3 whitespace-nowrap">
+                      {!p.credited && (
+                        <Button
+                          size="sm"
+                          onClick={() => manualCredit(p)}
+                          disabled={creditingId === p.id}
+                        >
+                          {creditingId === p.id ? "..." : "Зачислить"}
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={8} className="p-8 text-center text-slate-500">
                       {loading ? "Загрузка..." : "Платежей пока нет"}
                     </td>
                   </tr>
