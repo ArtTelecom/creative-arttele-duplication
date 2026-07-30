@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import localLocations, { Location } from "@/data/locations";
 
-const LOCATIONS_URL = "https://functions.poehali.dev/0d2a078e-d410-451d-a543-ec6a3ef3fe76?action=list_locations";
+const LOCATIONS_URL = "https://functions.poehali.dev/0d2a078e-d410-451d-a543-ec6a3ef3fe76";
 
 export type { Location };
 
@@ -38,7 +38,11 @@ export function useLocations() {
 
   useEffect(() => {
     let alive = true;
-    fetch(LOCATIONS_URL)
+    fetch(LOCATIONS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list_locations" }),
+    })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive || !json || !Array.isArray(json.locations) || !json.locations.length) return;

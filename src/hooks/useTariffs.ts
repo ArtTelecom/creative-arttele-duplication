@@ -21,7 +21,11 @@ export function useTariffs() {
 
   useEffect(() => {
     let alive = true;
-    fetch(TARIFFS_URL)
+    fetch(TARIFFS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "list" }),
+    })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         if (!alive || !json) return;
