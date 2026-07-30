@@ -68,10 +68,10 @@ def handler(event, context):
     # ── Сохранение (только владелец) ──
     if action == "save":
         headers = event.get("headers") or {}
-        login = headers.get("X-Admin-Login") or headers.get("x-admin-login") or body.get("login", "")
-        password = headers.get("X-Admin-Password") or headers.get("x-admin-password") or body.get("password", "")
-        real_login = os.environ.get("PAYMENTS_ADMIN_LOGIN", "")
-        real_pass = os.environ.get("PAYMENTS_ADMIN_PASSWORD", "")
+        login = (headers.get("X-Admin-Login") or headers.get("x-admin-login") or body.get("login", "")).strip()
+        password = (headers.get("X-Admin-Password") or headers.get("x-admin-password") or body.get("password", "")).strip()
+        real_login = os.environ.get("PAYMENTS_ADMIN_LOGIN", "").strip()
+        real_pass = os.environ.get("PAYMENTS_ADMIN_PASSWORD", "").strip()
         if not real_login or login != real_login or password != real_pass:
             return {"statusCode": 401, "headers": cors, "body": json.dumps({"error": "Неверный логин или пароль"})}
 
