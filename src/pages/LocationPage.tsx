@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Icon from "@/components/ui/icon";
-import locations from "@/data/locations";
+import useLocations from "@/hooks/useLocations";
 
 const colorMap = {
   blue:   { border: "rgba(0,212,255,0.3)",  bg: "rgba(0,212,255,0.08)",  text: "var(--neon-blue)",  badge: "rgba(0,212,255,0.15)" },
@@ -103,6 +103,7 @@ const tvPromos = [
 
 export default function LocationPage() {
   const { slug } = useParams<{ slug: string }>();
+  const { locations } = useLocations();
   const loc = locations.find(l => l.slug === slug);
   const [tab, setTab] = useState<"internet" | "tv">("internet");
 

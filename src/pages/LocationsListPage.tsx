@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Icon from "@/components/ui/icon";
 import PageHero from "@/components/ui/PageHero";
-import locations from "@/data/locations";
+import useLocations from "@/hooks/useLocations";
 
 export default function LocationsListPage() {
   const [search, setSearch] = useState("");
+  const { locations } = useLocations();
 
   const filtered = locations.filter(l =>
     l.name.toLowerCase().includes(search.toLowerCase())

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Icon from "@/components/ui/icon";
 import TariffsEditor from "@/components/admin/TariffsEditor";
+import LocationsEditor from "@/components/admin/LocationsEditor";
 
 const API_URL = "https://functions.poehali.dev/8df3bbb2-ef10-420a-95ca-13829e20eae1";
 const CREDS_KEY = "art_pay_admin";
@@ -44,7 +45,7 @@ const AdminPaymentsPage = () => {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [creditingId, setCreditingId] = useState<number | null>(null);
-  const [section, setSection] = useState<"payments" | "tariffs">("payments");
+  const [section, setSection] = useState<"payments" | "tariffs" | "locations">("payments");
 
   const manualCredit = async (p: Payment) => {
     if (!confirm(`Зачислить ${p.amount.toFixed(2)} ₽ абоненту ${p.fio || p.login}?`)) return;
@@ -215,9 +216,18 @@ const AdminPaymentsPage = () => {
           >
             Тарифы
           </button>
+          <button
+            onClick={() => setSection("locations")}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${
+              section === "locations" ? "bg-slate-600 text-white" : "text-slate-400"
+            }`}
+          >
+            Районы и акции
+          </button>
         </div>
 
         {section === "tariffs" && <TariffsEditor login={login} password={password} />}
+        {section === "locations" && <LocationsEditor login={login} password={password} />}
 
         {section === "payments" && summary && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

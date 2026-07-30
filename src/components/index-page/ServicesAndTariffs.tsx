@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Icon from "@/components/ui/icon";
 import useTariffs from "@/hooks/useTariffs";
-import locations from "@/data/locations";
+import useLocations from "@/hooks/useLocations";
 
 const services = [
   { icon: "Zap", title: "Домашний интернет", desc: "Оптоволокно прямо в квартиру. Скорость до 1 Гбит/с без скачков и обрывов — смотрите, играйте, работайте.", tag: "До 1 Гбит/с", color: "blue" },
@@ -17,6 +17,7 @@ export default function ServicesAndTariffs() {
   const [activeTariffTab, setActiveTariffTab] = useState<"home" | "business">("home");
   const navigate = useNavigate();
   const { home: tariffs } = useTariffs();
+  const { locations } = useLocations();
 
   return (
     <>
