@@ -203,6 +203,7 @@ export default function LkAndFooter() {
               {[
                 { label: "Документы и договоры", href: "/documents" },
                 { label: "Публичная оферта", href: "/offer" },
+                { label: "Для разработчиков", href: "/dev" },
               ].map(t => (
                 <Link key={t.label} to={t.href} className="hover:text-white transition-colors">{t.label}</Link>
               ))}
