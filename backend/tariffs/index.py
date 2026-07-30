@@ -48,6 +48,7 @@ def _row_to_location(r):
         "description": r[3],
         "available": bool(r[4]),
         "promos": r[5] if isinstance(r[5], list) else json.loads(r[5] or "[]"),
+        "tariffs": r[6] if isinstance(r[6], list) else json.loads(r[6] or "[]"),
     }
 
 
@@ -95,7 +96,7 @@ def handler(event, context):
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, slug, name, description, available, promos "
+                    "SELECT id, slug, name, description, available, promos, tariffs "
                     f"FROM {SCHEMA}.locations ORDER BY sort_order, id"
                 )
                 rows = cur.fetchall()
@@ -128,9 +129,14 @@ def handler(event, context):
                     if not isinstance(promos, list):
                         promos = []
                     promos_json = _esc(json.dumps(promos, ensure_ascii=False))
+                    tariffs = it.get("tariffs", [])
+                    if not isinstance(tariffs, list):
+                        tariffs = []
+                    tariffs_json = _esc(json.dumps(tariffs, ensure_ascii=False))
                     cur.execute(
                         f"UPDATE {SCHEMA}.locations SET name={name}, description={desc}, "
-                        f"available={available}, promos={promos_json}::jsonb, updated_at=now() WHERE id={lid}"
+                        f"available={available}, promos={promos_json}::jsonb, "
+                        f"tariffs={tariffs_json}::jsonb, updated_at=now() WHERE id={lid}"
                     )
             conn.commit()
         finally:

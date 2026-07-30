@@ -11,12 +11,12 @@ type ApiLocation = {
   description: string;
   available: boolean;
   promos: Location["promos"];
+  tariffs?: Location["tariffs"];
 };
 
 let cache: Location[] | null = null;
 
-// Тарифы районов остаются из локального файла (они общие),
-// а название/описание/доступность/акции берём из базы по slug.
+// Всё берём из базы: название, описание, доступность, акции и тарифы района.
 function merge(api: ApiLocation[]): Location[] {
   const bySlug = new Map(localLocations.map((l) => [l.slug, l]));
   return api.map((a) => {
@@ -27,7 +27,7 @@ function merge(api: ApiLocation[]): Location[] {
       description: a.description,
       available: a.available,
       promos: a.promos || [],
-      tariffs: base ? base.tariffs : [],
+      tariffs: a.tariffs && a.tariffs.length ? a.tariffs : base ? base.tariffs : [],
     };
   });
 }

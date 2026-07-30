@@ -8,6 +8,15 @@ import Icon from "@/components/ui/icon";
 const API_URL = "https://functions.poehali.dev/0d2a078e-d410-451d-a543-ec6a3ef3fe76";
 
 type Promo = { title: string; desc: string; badge: string; color: string };
+type LocTariff = {
+  name: string;
+  speed: string;
+  price: string;
+  color: string;
+  popular?: boolean;
+  badge?: string;
+  features: string[];
+};
 type Loc = {
   id: number;
   slug: string;
@@ -15,6 +24,7 @@ type Loc = {
   description: string;
   available: boolean;
   promos: Promo[];
+  tariffs: LocTariff[];
 };
 
 const COLORS = [
@@ -40,7 +50,11 @@ const LocationsEditor = ({ login, password }: { login: string; password: string 
       });
       const data = await res.json();
       setItems(
-        (data.locations || []).map((l: Loc) => ({ ...l, promos: l.promos || [] }))
+        (data.locations || []).map((l: Loc) => ({
+          ...l,
+          promos: l.promos || [],
+          tariffs: l.tariffs || [],
+        }))
       );
     } finally {
       setLoading(false);
@@ -76,6 +90,44 @@ const LocationsEditor = ({ login, password }: { login: string; password: string 
     setItems((prev) =>
       prev.map((l) =>
         l.id === id ? { ...l, promos: l.promos.filter((_, i) => i !== idx) } : l
+      )
+    );
+
+  const updateTariff = (id: number, idx: number, patch: Partial<LocTariff>) =>
+    setItems((prev) =>
+      prev.map((l) =>
+        l.id === id
+          ? { ...l, tariffs: l.tariffs.map((t, i) => (i === idx ? { ...t, ...patch } : t)) }
+          : l
+      )
+    );
+
+  const addTariff = (id: number) =>
+    setItems((prev) =>
+      prev.map((l) =>
+        l.id === id
+          ? {
+              ...l,
+              tariffs: [
+                ...l.tariffs,
+                {
+                  name: "Новый тариф",
+                  speed: "100",
+                  price: "1000",
+                  color: "blue",
+                  popular: false,
+                  features: ["100 Мбит/с", "Безлимит", "Поддержка 24/7"],
+                },
+              ],
+            }
+          : l
+      )
+    );
+
+  const removeTariff = (id: number, idx: number) =>
+    setItems((prev) =>
+      prev.map((l) =>
+        l.id === id ? { ...l, tariffs: l.tariffs.filter((_, i) => i !== idx) } : l
       )
     );
 
@@ -212,6 +264,75 @@ const LocationsEditor = ({ login, password }: { login: string; password: string 
                     ))}
                     {l.promos.length === 0 && (
                       <p className="text-xs text-slate-600">Акций нет. Нажмите «Акция», чтобы добавить.</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-slate-400">Тарифы района</Label>
+                      <Button size="sm" variant="outline" onClick={() => addTariff(l.id)}>
+                        <Icon name="Plus" size={14} className="mr-1" /> Тариф
+                      </Button>
+                    </div>
+                    {l.tariffs.map((t, idx) => (
+                      <div key={idx} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 space-y-2">
+                        <div className="flex gap-2 flex-wrap">
+                          <Input
+                            value={t.name}
+                            placeholder="Название"
+                            className="max-w-[160px]"
+                            onChange={(e) => updateTariff(l.id, idx, { name: e.target.value })}
+                          />
+                          <Input
+                            value={t.speed}
+                            placeholder="Скорость"
+                            className="max-w-[110px]"
+                            onChange={(e) => updateTariff(l.id, idx, { speed: e.target.value })}
+                          />
+                          <Input
+                            value={t.price}
+                            placeholder="Цена ₽"
+                            className="max-w-[110px]"
+                            onChange={(e) => updateTariff(l.id, idx, { price: e.target.value })}
+                          />
+                          <select
+                            value={t.color}
+                            onChange={(e) => updateTariff(l.id, idx, { color: e.target.value })}
+                            className="h-10 rounded-md border border-slate-700 bg-slate-800 px-2 text-sm text-white"
+                          >
+                            {COLORS.map((c) => (
+                              <option key={c.value} value={c.value}>
+                                {c.label}
+                              </option>
+                            ))}
+                          </select>
+                          <label className="flex items-center gap-1 text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={!!t.popular}
+                              onChange={(e) => updateTariff(l.id, idx, { popular: e.target.checked })}
+                            />
+                            Популярный
+                          </label>
+                          <button
+                            onClick={() => removeTariff(l.id, idx)}
+                            className="text-red-400 hover:text-red-300 px-2 ml-auto"
+                            title="Удалить тариф"
+                          >
+                            <Icon name="Trash2" size={16} />
+                          </button>
+                        </div>
+                        <textarea
+                          value={t.features.join("\n")}
+                          placeholder="Опции (каждая с новой строки)"
+                          onChange={(e) => updateTariff(l.id, idx, { features: e.target.value.split("\n") })}
+                          rows={Math.max(2, t.features.length)}
+                          className="w-full rounded-md border border-slate-700 bg-slate-800 p-2 text-sm text-white"
+                        />
+                      </div>
+                    ))}
+                    {l.tariffs.length === 0 && (
+                      <p className="text-xs text-slate-600">Тарифов нет. Нажмите «Тариф», чтобы добавить.</p>
                     )}
                   </div>
                 </div>
