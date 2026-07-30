@@ -128,32 +128,58 @@ const AdminPaymentsPage = () => {
 
   if (!authed) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
-        <Card className="w-full max-w-sm border-slate-800 bg-slate-900">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-white">
-              <Icon name="Lock" size={20} /> Журнал платежей
-            </CardTitle>
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4 relative overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,.6) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.6) 1px,transparent 1px)",
+            backgroundSize: "40px 40px",
+          }}
+        />
+        <Card className="w-full max-w-md border-slate-800 bg-slate-900/90 backdrop-blur relative z-10">
+          <CardHeader className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600">
+                <Icon name="TerminalSquare" size={22} className="text-white" />
+              </div>
+              <div>
+                <CardTitle className="text-white text-lg">Developer Portal</CardTitle>
+                <p className="text-xs text-slate-400">Служебный доступ для разработчиков</p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+              <p className="text-xs leading-relaxed text-slate-400">
+                <Icon name="ShieldAlert" size={13} className="inline mr-1 -mt-0.5 text-amber-400" />
+                Технический раздел для интеграции приложений и API. Доступ только для
+                авторизованных разработчиков. Все действия журналируются.
+              </p>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-slate-300">Логин</Label>
-              <Input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="Логин" />
+              <Label className="text-slate-300">API Login</Label>
+              <Input value={login} onChange={(e) => setLogin(e.target.value)} placeholder="Логин" autoComplete="off" />
             </div>
             <div className="space-y-2">
-              <Label className="text-slate-300">Пароль</Label>
+              <Label className="text-slate-300">Secret Key</Label>
               <Input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Пароль"
+                placeholder="Ключ доступа"
+                autoComplete="off"
                 onKeyDown={(e) => e.key === "Enter" && load(login, password)}
               />
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <Button className="w-full" onClick={() => load(login, password)} disabled={loading}>
-              {loading ? "Вход..." : "Войти"}
+              <Icon name="LogIn" size={16} className="mr-2" />
+              {loading ? "Проверка доступа..." : "Авторизоваться"}
             </Button>
+            <p className="text-center text-[11px] text-slate-600">
+              Developer API v1 · protected environment
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -164,7 +190,9 @@ const AdminPaymentsPage = () => {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="mx-auto max-w-6xl space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-white">Личный кабинет</h1>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Icon name="TerminalSquare" size={22} className="text-sky-400" /> Developer Console
+          </h1>
           <Button variant="outline" onClick={logout}>
             <Icon name="LogOut" size={16} className="mr-2" /> Выйти
           </Button>
