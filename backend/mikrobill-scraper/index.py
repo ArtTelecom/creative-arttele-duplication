@@ -3,8 +3,29 @@ import os
 import re
 import requests
 from bs4 import BeautifulSoup
+from urllib3.util import connection as urllib3_connection
 
 KASSA_URL = "https://lk.arttele.ru/kassa"
+
+# Прямой IP сервера MikroBill. Запасной резолв на случай, если DNS
+# lk.arttele.ru ещё не распространился после перепривязки домена.
+LK_HOST = "lk.arttele.ru"
+LK_IP = os.environ.get("LK_IP", "92.38.92.170")
+
+_orig_create_connection = urllib3_connection.create_connection
+
+
+def _patched_create_connection(address, *args, **kwargs):
+    host, port = address
+    if host == LK_HOST:
+        try:
+            return _orig_create_connection(address, *args, **kwargs)
+        except Exception:
+            return _orig_create_connection((LK_IP, port), *args, **kwargs)
+    return _orig_create_connection(address, *args, **kwargs)
+
+
+urllib3_connection.create_connection = _patched_create_connection
 
 
 def _smart_decode(content_bytes):
@@ -484,7 +505,7 @@ def lk_get_payments(lk_session, login):
 
     # Только один URL — самый рабочий
     base_urls = [
-        f'http://lk.arttele.ru/payments.php?date1={date1}&date2={date2}&records=99999',
+        f'https://lk.arttele.ru/payments.php?date1={date1}&date2={date2}&records=99999',
     ]
 
     date_re = re.compile(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?')
@@ -590,7 +611,7 @@ def lk_get_payments(lk_session, login):
             })
         return result
 
-    headers_req = {'User-Agent': 'Mozilla/5.0', 'Referer': 'http://lk.arttele.ru/'}
+    headers_req = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://lk.arttele.ru/'}
 
     for url in base_urls:
         for method, params in [
@@ -1622,7 +1643,7 @@ def handle_auth(event, cors):
 
     lk_session = requests.Session()
     lk_resp = lk_session.post(
-        'http://lk.arttele.ru/login.php',
+        'https://lk.arttele.ru/login.php',
         data={'login': login, 'pass': password, 'go': ''},
         allow_redirects=False,
         timeout=15,
@@ -1662,7 +1683,7 @@ def handle_user_info(event, cors):
 
     lk_session = requests.Session()
     lk_resp = lk_session.post(
-        'http://lk.arttele.ru/login.php',
+        'https://lk.arttele.ru/login.php',
         data={'login': login, 'pass': password, 'go': ''},
         allow_redirects=False,
         timeout=15,
@@ -1708,7 +1729,7 @@ def handle_user_info(event, cors):
             if len(v_clean) >= 4:
                 candidates.append(v_clean)
     try:
-        idx = lk_session.get('http://lk.arttele.ru/index.php', timeout=10)
+        idx = lk_session.get('https://lk.arttele.ru/index.php', timeout=10)
         idx_html = smart_text(idx)
         for c in candidates:
             if c and c in idx_html:
@@ -1736,7 +1757,7 @@ def handle_user_info(event, cors):
 def _verify_lk_session(lk_session, login, candidates):
     """Проверяет, что LK-сессия принадлежит абоненту (в index.php есть его данные)."""
     try:
-        idx = lk_session.get('http://lk.arttele.ru/index.php', timeout=10)
+        idx = lk_session.get('https://lk.arttele.ru/index.php', timeout=10)
         idx_html = smart_text(idx)
         for c in candidates:
             if c and c in idx_html:
@@ -1754,7 +1775,7 @@ def _login_to_lk_and_kassa(login, password):
     """
     lk_session = requests.Session()
     lk_resp = lk_session.post(
-        'http://lk.arttele.ru/login.php',
+        'https://lk.arttele.ru/login.php',
         data={'login': login, 'pass': password, 'go': ''},
         allow_redirects=False,
         timeout=15,
