@@ -1,20 +1,4 @@
-// Сервер провайдера, на который меряем скорость и пинг (а не на хостинг сайта).
-// Клиенты в локальной сети (10.x.x.x) меряют напрямую на локальный IP — минимальный пинг.
-// Остальные меряют на сервер по домену.
-const SPEED_TEST_LOCAL = "http://10.0.1.7";
-const SPEED_TEST_PUBLIC = "https://arttele.ru";
-
-function resolveSpeedTestOrigin(): string {
-  if (typeof window === "undefined") return SPEED_TEST_PUBLIC;
-  const host = window.location.hostname;
-  // Уже открыто с самого сервера/локальной сети — меряем локально
-  if (host === "10.0.1.7" || host.startsWith("10.") || host === "arttele.ru") {
-    return host.startsWith("10.") || host === "10.0.1.7" ? SPEED_TEST_LOCAL : SPEED_TEST_PUBLIC;
-  }
-  return SPEED_TEST_PUBLIC;
-}
-
-export const SPEED_TEST_ORIGIN = resolveSpeedTestOrigin();
+export const SPEED_TEST_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
 export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
