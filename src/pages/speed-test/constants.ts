@@ -1,4 +1,11 @@
-export const SPEED_TEST_ORIGIN = typeof window !== "undefined" ? window.location.origin : "";
+// Меряем ВСЕГДА на сервер провайдера (arttele.ru), а не на хостинг сайта.
+// Клиенты в локальной сети (10.x.x.x) — напрямую на локальный IP, минимальный пинг.
+export const SPEED_TEST_ORIGIN = (() => {
+  if (typeof window === "undefined") return "https://arttele.ru";
+  const host = window.location.hostname;
+  if (host === "10.0.1.7" || host.startsWith("10.")) return "http://10.0.1.7";
+  return "https://arttele.ru";
+})();
 export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
