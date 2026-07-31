@@ -4,6 +4,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from urllib3.util import connection as urllib3_connection
+from urllib.parse import urljoin
 
 KASSA_URL = "https://lk.arttele.ru/kassa"
 
@@ -1649,7 +1650,7 @@ def handle_auth(event, cors):
         timeout=15,
     )
     if lk_resp.status_code in (301, 302):
-        redirect_url = lk_resp.headers.get('Location', '')
+        redirect_url = urljoin('https://lk.arttele.ru/login.php', lk_resp.headers.get('Location', ''))
         lk_resp = lk_session.post(
             redirect_url,
             data={'login': login, 'pass': password, 'go': ''},
@@ -1689,7 +1690,7 @@ def handle_user_info(event, cors):
         timeout=15,
     )
     if lk_resp.status_code in (301, 302):
-        redirect_url = lk_resp.headers.get('Location', '')
+        redirect_url = urljoin('https://lk.arttele.ru/login.php', lk_resp.headers.get('Location', ''))
         lk_resp = lk_session.post(
             redirect_url,
             data={'login': login, 'pass': password, 'go': ''},
@@ -1781,7 +1782,7 @@ def _login_to_lk_and_kassa(login, password):
         timeout=15,
     )
     if lk_resp.status_code in (301, 302):
-        redirect_url = lk_resp.headers.get('Location', '')
+        redirect_url = urljoin('https://lk.arttele.ru/login.php', lk_resp.headers.get('Location', ''))
         lk_resp = lk_session.post(
             redirect_url,
             data={'login': login, 'pass': password, 'go': ''},
