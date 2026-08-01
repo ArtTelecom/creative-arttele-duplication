@@ -6,6 +6,14 @@ type NewsItem = { date: string; title: string; text: string };
 
 const API_URL = (funcUrls as Record<string, string>)["mikrobill-scraper"];
 
+const PINNED_NEWS: NewsItem[] = [
+  {
+    date: "13.12.25",
+    title: "Изменение порядка оплаты при подключении",
+    text: "При подключении с 1-го по 20-е число месяца оплачивается полная стоимость тарифа за текущий месяц. Если подключение происходит после 20-го числа, внесённая сумма переходит в счёт оплаты следующего месяца.",
+  },
+];
+
 export default function NewsBlock() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,10 +24,11 @@ export default function NewsBlock() {
     fetch(`${API_URL}?action=news`)
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) setNews(Array.isArray(data.news) ? data.news : []);
+        const remote = Array.isArray(data.news) ? data.news : [];
+        if (!cancelled) setNews([...PINNED_NEWS, ...remote]);
       })
       .catch(() => {
-        if (!cancelled) setNews([]);
+        if (!cancelled) setNews([...PINNED_NEWS]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
