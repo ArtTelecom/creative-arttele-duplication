@@ -5,6 +5,7 @@ export function useSpeedTest() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [results, setResults] = useState<Results>({ ping: null, download: null, upload: null });
   const [currentValue, setCurrentValue] = useState(0);
+  const [diag, setDiag] = useState<{ local: boolean | null; text: string }>({ local: null, text: "" });
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     try { return JSON.parse(localStorage.getItem("speedtest_history") || "[]"); } catch { return []; }
   });
@@ -209,15 +210,45 @@ export function useSpeedTest() {
     if (animRef.current) cancelAnimationFrame(animRef.current);
 
     setResults({ ping: null, download: null, upload: null });
+    setDiag({ local: null, text: "" });
     currentValueRef.current = 0;
     setCurrentValue(0);
     setPhase("ping");
 
     try {
       console.info("[speedtest] origin =", SPEED_TEST_ORIGIN, "| file =", SPEED_TEST_FILE);
+      console.info("[speedtest] страница открыта на =", typeof window !== "undefined" ? window.location.href : "-");
+      // Резолвим фактический IP сервера замера через облачную функцию-диагностику
+      try {
+        const host = new URL(SPEED_TEST_ORIGIN).hostname;
+        const dns = await fetch(`${SPEED_TEST_API}?action=resolve&host=${encodeURIComponent(host)}`)
+          .then(r => r.json()).catch(() => null);
+        if (dns && dns.ip) {
+          const isLocal = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(dns.ip);
+          console.info(
+            `[speedtest] ${host} → ${dns.ip}`,
+            isLocal ? "✅ ЛОКАЛЬНЫЙ адрес (замер по внутренней сети)" : "⚠️ ВНЕШНИЙ адрес (замер идёт ЧЕРЕЗ ИНТЕРНЕТ!)"
+          );
+        } else {
+          console.warn("[speedtest] не удалось определить IP сервера замера");
+        }
+      } catch (e) { console.warn("[speedtest] ошибка резолва IP:", e); }
+
       // 1. Ping
       const pingVal = await measurePing();
-      console.info("[speedtest] ping =", pingVal, "ms");
+      const isLocalByPing = pingVal <= 8;
+      const pingVerdict = isLocalByPing
+        ? "✅ похоже на ЛОКАЛЬНЫЙ сервер"
+        : pingVal <= 25
+          ? "🟡 пограничный (проверь маршрут)"
+          : "⚠️ высокий пинг — вероятно ЧЕРЕЗ ИНТЕРНЕТ";
+      console.info(`[speedtest] ping = ${pingVal} мс`, pingVerdict);
+      setDiag({
+        local: isLocalByPing,
+        text: isLocalByPing
+          ? `Замер по локальной сети (пинг ${pingVal} мс)`
+          : `Замер идёт через интернет (пинг ${pingVal} мс)`,
+      });
       setResults(r => ({ ...r, ping: pingVal }));
 
       // 2. Download — реальная скорость выводится на стрелку в реальном времени (smoothed)
@@ -272,5 +303,5 @@ export function useSpeedTest() {
     if (abortRef.current) abortRef.current.abort();
   }, []);
 
-  return { phase, results, currentValue, history, setHistory, runTest };
+  return { phase, results, currentValue, history, setHistory, runTest, diag };
 }

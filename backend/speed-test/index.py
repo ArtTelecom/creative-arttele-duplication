@@ -2,6 +2,7 @@ import os
 import json
 import time
 import base64
+import socket
 
 def handler(event: dict, context) -> dict:
     """
@@ -9,6 +10,7 @@ def handler(event: dict, context) -> dict:
     GET /?action=ping — возвращает метку времени для замера пинга
     GET /?action=download&size=5 — отдаёт N МБ случайных данных (base64) для замера скорости скачивания
     POST /?action=upload — принимает данные и возвращает размер + время для замера скорости отдачи
+    GET /?action=resolve&host=arttele.ru — резолвит домен в IP (диагностика: локальный или внешний адрес)
     """
     if event.get('httpMethod') == 'OPTIONS':
         return {
@@ -37,6 +39,21 @@ def handler(event: dict, context) -> dict:
             'headers': headers,
             'body': json.dumps({'ts': time.time(), 'ok': True})
         }
+
+    if action == 'resolve':
+        host = (params.get('host') or '').strip()
+        result = {'host': host, 'ip': None, 'is_local': None}
+        if host:
+            try:
+                ip = socket.gethostbyname(host)
+                result['ip'] = ip
+                result['is_local'] = (
+                    ip.startswith('10.') or ip.startswith('192.168.') or
+                    any(ip.startswith('172.' + str(n) + '.') for n in range(16, 32))
+                )
+            except OSError as e:
+                result['error'] = str(e)
+        return {'statusCode': 200, 'headers': headers, 'body': json.dumps(result)}
 
     if action == 'download':
         # Размер в МБ (по умолчанию 10 МБ)

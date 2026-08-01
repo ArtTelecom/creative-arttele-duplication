@@ -21,6 +21,14 @@
       "expectedStatus": 200,
       "expectedBody": {"ok": true},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Resolve host",
+      "method": "GET",
+      "path": "/?action=resolve&host=arttele.ru",
+      "expectedStatus": 200,
+      "expectedBody": {"host": "arttele.ru"},
+      "bodyMatcher": "partial"
     }
   ]
 }

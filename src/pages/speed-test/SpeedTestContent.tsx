@@ -12,6 +12,7 @@ interface SpeedTestContentProps {
   history: HistoryEntry[];
   setHistory: React.Dispatch<React.SetStateAction<HistoryEntry[]>>;
   runTest: () => void;
+  diag: { local: boolean | null; text: string };
 }
 
 const quality = (dl: number) => {
@@ -28,6 +29,7 @@ export default function SpeedTestContent({
   history,
   setHistory,
   runTest,
+  diag,
 }: SpeedTestContentProps) {
   const isRunning = phase === "ping" || phase === "download" || phase === "upload";
   const gaugeMax = phase === "upload" ? UPLOAD_MAX : SCALE_MAX;
@@ -146,6 +148,21 @@ export default function SpeedTestContent({
           <Link to="/tariffs" className="mt-2 text-xs text-white/40 hover:text-[#00d4ff] transition-colors underline underline-offset-2">
             Посмотреть тарифы с высокой скоростью →
           </Link>
+        )}
+
+        {/* Диагностика: локальный замер или через интернет */}
+        {diag.local !== null && diag.text && (
+          <div
+            className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold"
+            style={{
+              background: diag.local ? "#00f57a14" : "#f59e0b14",
+              border: `1px solid ${diag.local ? "#00f57a44" : "#f59e0b44"}`,
+              color: diag.local ? "#00f57a" : "#f59e0b",
+            }}
+          >
+            <Icon name={diag.local ? "ShieldCheck" : "Globe"} size={13} />
+            {diag.text}
+          </div>
         )}
 
         {isRunning && (

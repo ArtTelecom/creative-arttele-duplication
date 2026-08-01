@@ -3,7 +3,7 @@ import SpeedTestContent from "./speed-test/SpeedTestContent";
 import { useSpeedTest } from "./speed-test/useSpeedTest";
 
 export default function SpeedTestPage() {
-  const { phase, results, currentValue, history, setHistory, runTest } = useSpeedTest();
+  const { phase, results, currentValue, history, setHistory, runTest, diag } = useSpeedTest();
 
   return (
     <div className="min-h-screen mesh-bg noise font-sans text-white">
@@ -16,6 +16,7 @@ export default function SpeedTestPage() {
           history={history}
           setHistory={setHistory}
           runTest={runTest}
+          diag={diag}
         />
       </div>
     </div>
