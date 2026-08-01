@@ -147,6 +147,7 @@ export function useSpeedTest() {
     const WARMUP_MS = 1000;
 
     const uploadUrl = await resolveUploadUrl();
+    console.info("[speedtest] upload url =", uploadUrl, uploadUrl.includes("functions.poehali.dev") ? "(облако — локальный upload.php недоступен)" : "(локальный сервер)");
     const sep = uploadUrl.includes("?") ? "&" : "?";
 
     // Заполняем весь буфер случайными данными порциями по 64КБ (ограничение crypto)
@@ -213,8 +214,10 @@ export function useSpeedTest() {
     setPhase("ping");
 
     try {
+      console.info("[speedtest] origin =", SPEED_TEST_ORIGIN, "| file =", SPEED_TEST_FILE);
       // 1. Ping
       const pingVal = await measurePing();
+      console.info("[speedtest] ping =", pingVal, "ms");
       setResults(r => ({ ...r, ping: pingVal }));
 
       // 2. Download — реальная скорость выводится на стрелку в реальном времени (smoothed)
@@ -231,6 +234,7 @@ export function useSpeedTest() {
       };
 
       const dlVal = await measureDownload(smooth);
+      console.info("[speedtest] download =", dlVal, "Мбит/с");
       await new Promise<void>(resolve => animateTo(dlVal, 500, resolve));
       setResults(r => ({ ...r, download: dlVal }));
 
@@ -257,7 +261,8 @@ export function useSpeedTest() {
       });
 
       setPhase("done");
-    } catch {
+    } catch (e) {
+      console.error("[speedtest] ошибка замера:", e);
       setPhase("done");
     }
   }, []);
