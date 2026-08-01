@@ -1,7 +1,8 @@
-// Локальный сервер замера жёстко зашит: в сети провайдера arttele.ru резолвится
-// в локальный 10.0.1.7, поэтому весь трафик замера идёт по внутренней сети
-// (не выходит в интернет) для всех абонентов, включая тех, кто за NAT.
-export const SPEED_TEST_ORIGIN = "https://arttele.ru";
+// Локальный сервер замера жёстко зашит: speedtest-s1.arttele.ru указывает на
+// локальный сервер (10.0.1.7) с валидным HTTPS-сертификатом, поэтому весь трафик
+// замера идёт по внутренней сети (не выходит в интернет) для всех абонентов,
+// включая тех, кто за NAT.
+export const SPEED_TEST_ORIGIN = "https://speedtest-s1.arttele.ru";
 export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
