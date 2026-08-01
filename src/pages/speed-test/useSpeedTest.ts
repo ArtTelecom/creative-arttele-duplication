@@ -38,6 +38,7 @@ export function useSpeedTest() {
 
   async function measurePing(): Promise<number> {
     const times: number[] = [];
+    let ok = 0;
     // Пингуем локальный сервер (тот же, что раздаёт сайт) по маленькому Range-запросу к файлу
     const url = `${SPEED_TEST_ORIGIN}${SPEED_TEST_FILE}`;
     // прогрев соединения
@@ -45,13 +46,16 @@ export function useSpeedTest() {
     for (let i = 0; i < 6; i++) {
       const t0 = performance.now();
       try {
-        await fetch(`${url}?_=${Date.now()}_${i}`, { cache: "no-store", headers: { Range: "bytes=0-0" } });
-      } catch { /* ignore */ }
-      times.push(performance.now() - t0);
+        const r = await fetch(`${url}?_=${Date.now()}_${i}`, { cache: "no-store", headers: { Range: "bytes=0-0" } });
+        if (r.ok || r.status === 206) ok++;
+        times.push(performance.now() - t0);
+      } catch { /* запрос не прошёл — не учитываем в пинге */ }
     }
+    // Если ни один запрос не дошёл до сервера — файл недоступен
+    if (ok === 0 || times.length === 0) return -1;
     times.sort((a, b) => a - b);
     // берём медианные значения (без крайних выбросов)
-    const mid = times.slice(1, 4);
+    const mid = times.slice(1, Math.min(4, times.length));
     return Math.round(mid.reduce((s, v) => s + v, 0) / mid.length);
   }
 
@@ -236,6 +240,14 @@ export function useSpeedTest() {
 
       // 1. Ping
       const pingVal = await measurePing();
+      if (pingVal < 0) {
+        // Файл замера недоступен на сервере (нет speedtest.bin или блокирует CORS)
+        console.error(`[speedtest] сервер замера недоступен: ${SPEED_TEST_ORIGIN}${SPEED_TEST_FILE}`);
+        setDiag({ local: false, text: "Сервер замера недоступен — проверь файл speedtest.bin" });
+        setResults(r => ({ ...r, ping: null }));
+        setPhase("done");
+        return;
+      }
       const isLocalByPing = pingVal <= 8;
       const pingVerdict = isLocalByPing
         ? "✅ похоже на ЛОКАЛЬНЫЙ сервер"

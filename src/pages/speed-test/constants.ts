@@ -1,13 +1,10 @@
-// Локальный сервер замера. В сети провайдера (в т.ч. на MikroTik за NAT)
-// arttele.ru резолвится в локальный 10.0.1.7, поэтому замер идёт по внутренней
-// сети и не выходит в интернет.
-// Если сайт уже открыт на arttele.ru — используем текущий origin (тот же сервер).
-// Иначе (превью, другой домен) — принудительно бьём в локальный arttele.ru.
-const LOCAL_SPEED_TEST_HOST = "https://arttele.ru";
+// Замер всегда идёт на тот сервер, с которого открыт сайт (origin текущей
+// страницы). У абонента в сети провайдера сайт открыт на arttele.ru, который
+// на MikroTik резолвится в локальный 10.0.1.7 — значит замер идёт по внутренней
+// сети и не выходит в интернет. Файлы speedtest.bin и upload.php раздаёт тот же
+// сервер, поэтому CORS-проблем нет (запрос к своему же origin).
 export const SPEED_TEST_ORIGIN =
-  typeof window !== "undefined" && /(^|\.)arttele\.ru$/i.test(window.location.hostname)
-    ? window.location.origin
-    : LOCAL_SPEED_TEST_HOST;
+  typeof window !== "undefined" ? window.location.origin : "";
 export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
