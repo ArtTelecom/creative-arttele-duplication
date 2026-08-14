@@ -23,6 +23,7 @@ const CloudLoginPage = lazy(() => import("./pages/CloudLoginPage"));
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const AdminStatsPage = lazy(() => import("./pages/AdminStatsPage"));
+const AdminRequestsPage = lazy(() => import("./pages/AdminRequestsPage"));
 const AdminPaymentsPage = lazy(() => import("./pages/AdminPaymentsPage"));
 const StatusPage = lazy(() => import("./pages/StatusPage"));
 const RequisitesPage = lazy(() => import("./pages/RequisitesPage"));
@@ -57,6 +58,7 @@ const App = () => (
           <Route path="/login" element={<LoginPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/admin/stats" element={<AdminStatsPage />} />
+          <Route path="/admin/requests" element={<AdminRequestsPage />} />
           <Route path="/admin/payments" element={<AdminPaymentsPage />} />
           <Route path="/dev" element={<AdminPaymentsPage />} />
           <Route path="/dev/console" element={<AdminPaymentsPage />} />

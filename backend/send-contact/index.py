@@ -282,7 +282,7 @@ def _smtp_host_for(email: str) -> str:
     return "smtp.mail.ru"
 
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str) -> bool:
     """Отправляет заявку в Telegram. Перебирает адреса Telegram,
     так как часть из них недоступна из облака."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -290,7 +290,7 @@ def send_telegram(text: str) -> None:
     print(f"[TG] token_present={bool(token)}, chat_id={chat_id!r}")
     if not token or not chat_id:
         print("[TG] Пропускаю — нет токена или chat_id")
-        return
+        return False
     payload = json.dumps({
         "chat_id": chat_id,
         "text": text,
@@ -313,15 +313,16 @@ def send_telegram(text: str) -> None:
             conn.close()
             if resp.status == 200:
                 print(f"[TG] OK via {host}: {body[:150]}")
-                return
+                return True
             print(f"[TG] HTTP {resp.status} via {host}: {body[:200]}")
             if resp.status < 500:
-                return
+                return False
             last_err = f"HTTP {resp.status}"
         except Exception as e:
             last_err = f"{host}: {type(e).__name__}"
             print(f"[TG] failed via {host}: {type(e).__name__}: {str(e)[:150]}")
     print(f"[TG] GAVE UP: {last_err}")
+    return False
 
 
 CORS = {
@@ -435,7 +436,87 @@ def handle_chat(body: dict) -> dict:
     }
 
 
-def handle_ticket(body: dict) -> dict:
+def _sql_str(value: str) -> str:
+    return "'" + str(value or "").replace("'", "''")[:2000] + "'"
+
+
+def save_request(name: str, phone: str, topic: str, city: str,
+                 address: str, message: str, ip: str) -> int:
+    """Сохраняет заявку в журнал сразу при получении, до отправки уведомлений."""
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        return 0
+    try:
+        import psycopg2
+        with psycopg2.connect(dsn) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO contact_requests "
+                    "(name, phone, topic, city, address, message, ip) VALUES ("
+                    f"{_sql_str(name)}, {_sql_str(phone)}, {_sql_str(topic)}, "
+                    f"{_sql_str(city)}, {_sql_str(address)}, {_sql_str(message)}, "
+                    f"{_sql_str(ip)}) RETURNING id"
+                )
+                row = cur.fetchone()
+                req_id = int(row[0]) if row else 0
+        print(f"[JOURNAL] Заявка сохранена id={req_id}")
+        return req_id
+    except Exception as e:
+        print(f"[JOURNAL] Ошибка сохранения: {type(e).__name__}: {str(e)[:200]}")
+        return 0
+
+
+def update_delivery(req_id: int, tg_ok: bool, email_ok: bool,
+                    ai_reply: str, error: str) -> None:
+    """Отмечает в журнале, куда заявка реально доставлена."""
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn or not req_id:
+        return
+    try:
+        import psycopg2
+        with psycopg2.connect(dsn) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE contact_requests SET "
+                    f"telegram_sent = {'TRUE' if tg_ok else 'FALSE'}, "
+                    f"email_sent = {'TRUE' if email_ok else 'FALSE'}, "
+                    f"ai_reply = {_sql_str(ai_reply)}, "
+                    f"delivery_error = {_sql_str(error)} "
+                    f"WHERE id = {int(req_id)}"
+                )
+    except Exception as e:
+        print(f"[JOURNAL] Ошибка обновления: {type(e).__name__}: {str(e)[:200]}")
+
+
+def list_requests(limit: int = 100) -> list:
+    """Возвращает журнал заявок для админ-страницы."""
+    dsn = os.environ.get("DATABASE_URL")
+    if not dsn:
+        return []
+    import psycopg2
+    rows_out = []
+    with psycopg2.connect(dsn) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, name, phone, topic, city, address, message, "
+                "telegram_sent, email_sent, delivery_error, "
+                "to_char(created_at, 'DD.MM.YYYY HH24:MI') "
+                "FROM contact_requests ORDER BY created_at DESC "
+                f"LIMIT {int(limit)}"
+            )
+            for r in cur.fetchall():
+                rows_out.append({
+                    "id": r[0], "name": r[1], "phone": r[2], "topic": r[3],
+                    "city": r[4], "address": r[5], "message": r[6],
+                    "telegram_sent": r[7], "email_sent": r[8],
+                    "delivery_error": r[9], "created_at": r[10],
+                })
+    return rows_out
+
+
+def handle_ticket(body: dict, ip: str = "") -> dict:
     name = body.get("name", "").strip()
     phone = body.get("phone", "").strip()
     topic = body.get("topic", "").strip()
@@ -449,6 +530,8 @@ def handle_ticket(body: dict) -> dict:
             "headers": CORS,
             "body": json.dumps({"error": "Имя и телефон обязательны"}, ensure_ascii=False),
         }
+
+    req_id = save_request(name, phone, topic, city, address, message, ip)
 
     ai_text = call_vsegpt([
         {"role": "system", "content": SYSTEM_PROMPTS["ticket"]},
@@ -470,7 +553,9 @@ def handle_ticket(body: dict) -> dict:
     )
     if ai_text:
         tg_text += f"\n\n<i>🤖 Автоответ ИИ клиенту:</i>\n{ai_text}"
-    send_telegram(tg_text)
+    tg_ok = send_telegram(tg_text)
+    email_ok = False
+    delivery_error = ""
 
     smtp_user = os.environ.get("SMTP_USER")
     smtp_pass = os.environ.get("SMTP_PASS")
@@ -513,8 +598,16 @@ def handle_ticket(body: dict) -> dict:
                     server.login(smtp_user, smtp_pass)
                     server.sendmail(smtp_user, recipients, msg.as_string())
             print(f"[EMAIL] Письмо отправлено на {email_to} через {smtp_host}:{smtp_port}")
+            email_ok = True
         except Exception as e:
+            delivery_error = f"Почта: {type(e).__name__}"
             print(f"[EMAIL] Ошибка ({smtp_host}:{smtp_port}): {type(e).__name__}: {str(e)[:300]}")
+    else:
+        delivery_error = "Почта не настроена"
+
+    if not tg_ok:
+        delivery_error = ("Telegram недоступен. " + delivery_error).strip()
+    update_delivery(req_id, tg_ok, email_ok, ai_text, delivery_error)
 
     return {
         "statusCode": 200,
@@ -531,16 +624,32 @@ def handler(event: dict, context) -> dict:
             "statusCode": 200,
             "headers": {
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, X-Auth-Token",
                 "Access-Control-Max-Age": "86400",
             },
             "body": "",
         }
+
+    params = event.get("queryStringParameters") or {}
+    if event.get("httpMethod") == "GET" or params.get("action") == "journal":
+        token = (event.get("headers") or {}).get("X-Auth-Token") or params.get("token", "")
+        if not token or token != os.environ.get("ADMIN_TOKEN", ""):
+            return {"statusCode": 403, "headers": CORS,
+                    "body": json.dumps({"error": "Нет доступа"}, ensure_ascii=False)}
+        try:
+            items = list_requests(int(params.get("limit", "100")))
+            return {"statusCode": 200, "headers": CORS,
+                    "body": json.dumps({"items": items}, ensure_ascii=False)}
+        except Exception as e:
+            print(f"[JOURNAL] Ошибка выдачи: {type(e).__name__}: {str(e)[:200]}")
+            return {"statusCode": 500, "headers": CORS,
+                    "body": json.dumps({"error": "Не удалось загрузить журнал"}, ensure_ascii=False)}
 
     body = json.loads(event.get("body") or "{}")
     mode = body.get("mode", "ticket")
 
     if mode in ("site", "dashboard"):
         return handle_chat(body)
-    return handle_ticket(body)
+    ip = ((event.get("requestContext") or {}).get("identity") or {}).get("sourceIp", "")
+    return handle_ticket(body, ip)
