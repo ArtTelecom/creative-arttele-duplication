@@ -2,10 +2,27 @@ import json
 import os
 import time
 import hashlib
+import ssl
 import urllib.request
 import urllib.error
 
 TBANK_INIT_URL = "https://securepay.tinkoff.ru/v2/Init"
+
+_RUSSIAN_ROOT_CA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "russian_trusted_root_ca.pem")
+_SSL_CTX = None
+
+
+def _ssl_context():
+    global _SSL_CTX
+    if _SSL_CTX is None:
+        ctx = ssl.create_default_context()
+        if os.path.exists(_RUSSIAN_ROOT_CA):
+            try:
+                ctx.load_verify_locations(cafile=_RUSSIAN_ROOT_CA)
+            except Exception as e:
+                print(f"[TBANK] root CA load failed: {e}")
+        _SSL_CTX = ctx
+    return _SSL_CTX
 
 JOURNAL_SCHEMA = "t_p33656588_creative_arttele_dup"
 
@@ -44,7 +61,7 @@ def _http_post_json(url: str, payload: dict) -> dict:
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=20, context=_ssl_context()) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         return {"Success": False, "Message": f"HTTP {e.code}", "Details": e.read().decode("utf-8", "ignore")}
