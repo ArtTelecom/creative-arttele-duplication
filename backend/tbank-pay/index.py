@@ -293,23 +293,15 @@ def _credit_via_kassa(login: str, amount: float, order_id: str) -> dict:
 
 
 TELEGRAM_HOST = "api.telegram.org"
-TELEGRAM_FALLBACK_IPS = ["149.154.167.220", "149.154.167.197", "149.154.166.120", "149.154.175.50"]
+TELEGRAM_FALLBACK_IPS = ["149.154.167.220", "149.154.167.197", "149.154.175.50"]
+TELEGRAM_CONNECT_TIMEOUT = 3
 
 
 def _telegram_hosts() -> list:
-    """Адреса Telegram API: сначала имя, затем прямые IP.
+    """Адреса Telegram API: сначала заведомо рабочие IP, затем имя.
     Нужно потому, что часть адресов Telegram из облака недоступна."""
-    hosts = [TELEGRAM_HOST]
-    try:
-        for info in socket.getaddrinfo(TELEGRAM_HOST, 443, socket.AF_INET, socket.SOCK_STREAM):
-            ip = info[4][0]
-            if ip not in hosts:
-                hosts.append(ip)
-    except Exception as e:
-        print(f"[TBANK] telegram dns failed: {e}")
-    for ip in TELEGRAM_FALLBACK_IPS:
-        if ip not in hosts:
-            hosts.append(ip)
+    hosts = list(TELEGRAM_FALLBACK_IPS)
+    hosts.append(TELEGRAM_HOST)
     return hosts
 
 
@@ -353,9 +345,9 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     last_err = ""
     for host in _telegram_hosts():
         try:
-            raw = socket.create_connection((host, 443), timeout=8)
+            raw = socket.create_connection((host, 443), timeout=TELEGRAM_CONNECT_TIMEOUT)
             sock = ssl.create_default_context().wrap_socket(raw, server_hostname=TELEGRAM_HOST)
-            conn = http.client.HTTPSConnection(TELEGRAM_HOST, 443, timeout=8)
+            conn = http.client.HTTPSConnection(TELEGRAM_HOST, 443, timeout=6)
             conn.sock = sock
             conn.request(
                 "POST", f"/bot{token}/sendMessage", body=payload,
