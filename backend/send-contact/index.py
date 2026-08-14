@@ -267,7 +267,7 @@ def call_vsegpt(messages: list, max_tokens: int = 500) -> str:
 TELEGRAM_HOST = "api.telegram.org"
 TELEGRAM_HOSTS = ["149.154.167.220", "149.154.167.197", "149.154.175.50", TELEGRAM_HOST]
 
-DEFAULT_EMAIL_TO = "art888019@mail.ru, art888018@mail.ru"
+DEFAULT_EMAIL_TO = "art888018@mail.ru"
 
 
 def _smtp_host_for(email: str) -> str:

@@ -2,9 +2,13 @@ import json
 import os
 import time
 import hashlib
+import re
 import ssl
 import socket
 import http.client
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import urllib.request
 import urllib.error
 
@@ -369,6 +373,93 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     print(f"[TBANK] telegram notify GAVE UP: {last_err}")
 
 
+PAY_EMAIL_TO = "art888018@mail.ru"
+
+
+def _smtp_host_for(email: str) -> str:
+    """Подбирает почтовый сервер по домену отправителя."""
+    domain = email.split("@")[-1].lower() if "@" in email else ""
+    if domain in ("mail.ru", "bk.ru", "inbox.ru", "list.ru", "internet.ru"):
+        return "smtp.mail.ru"
+    if domain in ("yandex.ru", "ya.ru", "yandex.com"):
+        return "smtp.yandex.ru"
+    if domain in ("gmail.com", "googlemail.com"):
+        return "smtp.gmail.com"
+    return "smtp.mail.ru"
+
+
+def _notify_email(login: str, amount: float, order_id: str, credit_result: dict) -> None:
+    """Дублирует уведомление об оплате на почту.
+    Не влияет на приём платежа: любые ошибки только логируются."""
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    email_to = os.environ.get("PAY_EMAIL_TO") or os.environ.get("EMAIL_TO") or PAY_EMAIL_TO
+    recipients = [a.strip() for a in re.split(r"[,;\s]+", email_to) if a.strip()]
+    if not smtp_user or not smtp_pass or not recipients:
+        print("[TBANK] email notify skipped: SMTP не настроен")
+        return
+    ok = bool(credit_result.get("ok"))
+    account = str(credit_result.get("account", "") or "").strip()
+    fio = str(credit_result.get("fio", "") or "").strip()
+    balance = credit_result.get("balance_before", "")
+    balance_after = credit_result.get("balance_after", "")
+    when = time.strftime("%d.%m.%Y %H:%M", time.gmtime(time.time() + 3 * 3600))
+    if ok:
+        subject = f"Оплата зачислена: {fio or login} — {amount:.2f} ₽"
+        head = '<h2 style="color:#059669;margin:0 0 4px;">Оплата зачислена</h2>'
+    else:
+        subject = f"ВНИМАНИЕ! Зачисление не прошло: {fio or login} — {amount:.2f} ₽"
+        head = ('<h2 style="color:#dc2626;margin:0 0 4px;">Зачисление НЕ прошло</h2>'
+                '<p style="color:#dc2626;font-size:14px;margin:0;">Деньги приняты банком, '
+                'но НЕ попали на счёт абонента. Требуется зачислить платёж вручную.</p>')
+    rows = [("Абонент", fio or login)]
+    if account and account != login:
+        rows.append(("Договор", account))
+    rows.append(("Сумма", f"{amount:.2f} ₽"))
+    rows.append(("Дата и время", f"{when} (МСК)"))
+    rows.append(("Заказ", order_id))
+    if balance:
+        rows.append(("Баланс до пополнения", f"{balance} ₽"))
+    if balance_after:
+        rows.append(("Баланс после пополнения", f"{balance_after} ₽"))
+    if not ok and credit_result.get("error"):
+        rows.append(("Ошибка", str(credit_result.get("error"))[:200]))
+    trs = "".join(
+        f'<tr><td style="padding:8px 0;color:#6b7280;font-size:14px;width:200px;">{k}:</td>'
+        f'<td style="padding:8px 0;color:#111827;font-size:14px;font-weight:600;">{v}</td></tr>'
+        for k, v in rows
+    )
+    html = (
+        '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;'
+        'background:#f9fafb;padding:24px;border-radius:12px;">'
+        f'{head}'
+        '<p style="color:#6b7280;margin-top:4px;font-size:14px;">АртТелеком Юг — онлайн-оплата Т-Банк</p>'
+        '<hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0;">'
+        f'<table style="width:100%;border-collapse:collapse;">{trs}</table>'
+        '</div>'
+    )
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = ", ".join(recipients)
+    msg.attach(MIMEText(html, "html", "utf-8"))
+    smtp_host = os.environ.get("SMTP_HOST") or _smtp_host_for(smtp_user)
+    smtp_port = int(os.environ.get("SMTP_PORT", "465"))
+    try:
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, recipients, msg.as_string())
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, recipients, msg.as_string())
+        print(f"[TBANK] email notify sent to {recipients} via {smtp_host}:{smtp_port}")
+    except Exception as e:
+        print(f"[TBANK] email notify failed ({smtp_host}:{smtp_port}): {type(e).__name__}: {str(e)[:200]}")
+
+
 def _journal_payment(order_id: str, login: str, amount: float, status: str,
                      payment_id: str, credit_result: dict, raw_body: str) -> None:
     """Пишет запись о каждом уведомлении банка в журнал платежей (PostgreSQL).
@@ -460,7 +551,11 @@ def handler(event, context):
         return {"statusCode": 200, "headers": cors, "body": json.dumps(_dbtest())}
 
     if action == "test_notify":
-        _notify_telegram("ТЕСТ", 1.0, "test-" + str(int(time.time())), {"ok": True, "balance_before": "0.00"})
+        _test_data = {"ok": True, "balance_before": "1000.00", "balance_after": "1010.00",
+                      "account": "0000301", "fio": "Тестовый Абонент"}
+        _test_order = "test-" + str(int(time.time()))
+        _notify_telegram("ТЕСТ", 10.0, _test_order, _test_data)
+        _notify_email("ТЕСТ", 10.0, _test_order, _test_data)
         return {"statusCode": 200, "headers": cors, "body": json.dumps({"ok": True, "message": "Тестовое уведомление отправлено, проверьте Telegram"})}
 
     if action == "create":
@@ -564,6 +659,7 @@ def handler(event, context):
             # чтобы не приходило два сообщения (на AUTHORIZED и на CONFIRMED)
             if status == "CONFIRMED":
                 _notify_telegram(login, amount, order_id, result)
+                _notify_email(login, amount, order_id, result)
                 _journal_payment(order_id, login, amount, status, payment_id, result, raw)
         else:
             print(f"[TBANK] notify ignored status={status}")
