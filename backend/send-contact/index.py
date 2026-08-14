@@ -2,6 +2,9 @@ import json
 import os
 import re
 import smtplib
+import ssl
+import socket
+import http.client
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
@@ -261,37 +264,50 @@ def call_vsegpt(messages: list, max_tokens: int = 500) -> str:
         return ""
 
 
+TELEGRAM_HOST = "api.telegram.org"
+TELEGRAM_HOSTS = ["149.154.167.220", "149.154.167.197", "149.154.175.50", TELEGRAM_HOST]
+
+
 def send_telegram(text: str) -> None:
+    """Отправляет заявку в Telegram. Перебирает адреса Telegram,
+    так как часть из них недоступна из облака."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     print(f"[TG] token_present={bool(token)}, chat_id={chat_id!r}")
     if not token or not chat_id:
         print("[TG] Пропускаю — нет токена или chat_id")
         return
-    req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            body = resp.read().decode("utf-8", errors="ignore")
-        print(f"[TG] OK: {body[:200]}")
-    except urllib.error.HTTPError as e:
-        err_body = ""
+    payload = json.dumps({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }).encode("utf-8")
+    last_err = ""
+    for host in TELEGRAM_HOSTS:
         try:
-            err_body = e.read().decode("utf-8", errors="ignore")
-        except Exception:
-            pass
-        print(f"[TG] HTTPError {e.code}: {err_body[:500]}")
-    except Exception as e:
-        print(f"[TG] Exception: {type(e).__name__}: {str(e)[:300]}")
+            raw = socket.create_connection((host, 443), timeout=3)
+            sock = ssl.create_default_context().wrap_socket(raw, server_hostname=TELEGRAM_HOST)
+            conn = http.client.HTTPSConnection(TELEGRAM_HOST, 443, timeout=6)
+            conn.sock = sock
+            conn.request(
+                "POST", f"/bot{token}/sendMessage", body=payload,
+                headers={"Content-Type": "application/json", "Host": TELEGRAM_HOST},
+            )
+            resp = conn.getresponse()
+            body = resp.read().decode("utf-8", errors="ignore")
+            conn.close()
+            if resp.status == 200:
+                print(f"[TG] OK via {host}: {body[:150]}")
+                return
+            print(f"[TG] HTTP {resp.status} via {host}: {body[:200]}")
+            if resp.status < 500:
+                return
+            last_err = f"HTTP {resp.status}"
+        except Exception as e:
+            last_err = f"{host}: {type(e).__name__}"
+            print(f"[TG] failed via {host}: {type(e).__name__}: {str(e)[:150]}")
+    print(f"[TG] GAVE UP: {last_err}")
 
 
 CORS = {
