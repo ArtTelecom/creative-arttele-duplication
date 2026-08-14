@@ -3,6 +3,8 @@ import os
 import time
 import hashlib
 import ssl
+import socket
+import http.client
 import urllib.request
 import urllib.error
 
@@ -290,6 +292,27 @@ def _credit_via_kassa(login: str, amount: float, order_id: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+TELEGRAM_HOST = "api.telegram.org"
+TELEGRAM_FALLBACK_IPS = ["149.154.167.220", "149.154.167.197", "149.154.166.120", "149.154.175.50"]
+
+
+def _telegram_hosts() -> list:
+    """Адреса Telegram API: сначала имя, затем прямые IP.
+    Нужно потому, что часть адресов Telegram из облака недоступна."""
+    hosts = [TELEGRAM_HOST]
+    try:
+        for info in socket.getaddrinfo(TELEGRAM_HOST, 443, socket.AF_INET, socket.SOCK_STREAM):
+            ip = info[4][0]
+            if ip not in hosts:
+                hosts.append(ip)
+    except Exception as e:
+        print(f"[TBANK] telegram dns failed: {e}")
+    for ip in TELEGRAM_FALLBACK_IPS:
+        if ip not in hosts:
+            hosts.append(ip)
+    return hosts
+
+
 def _notify_telegram(login: str, amount: float, order_id: str, credit_result: dict) -> None:
     """Отправляет уведомление об успешной оплате в Telegram-канал.
     Не влияет на приём платежа: любые ошибки только логируются."""
@@ -328,27 +351,30 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
         text += f"\n❗ Ошибка: {credit_result.get('error')}"
     payload = json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
     last_err = ""
-    for attempt in range(1, 4):
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            data=payload, headers={"Content-Type": "application/json"}, method="POST",
-        )
+    for host in _telegram_hosts():
         try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                body = resp.read().decode("utf-8", "ignore")
-            print(f"[TBANK] telegram notify sent (attempt {attempt}): {body[:200]}")
-            return
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", "ignore")[:200]
-            print(f"[TBANK] telegram notify HTTP {e.code} (attempt {attempt}): {err_body}")
-            if e.code < 500:
+            raw = socket.create_connection((host, 443), timeout=8)
+            sock = ssl.create_default_context().wrap_socket(raw, server_hostname=TELEGRAM_HOST)
+            conn = http.client.HTTPSConnection(TELEGRAM_HOST, 443, timeout=8)
+            conn.sock = sock
+            conn.request(
+                "POST", f"/bot{token}/sendMessage", body=payload,
+                headers={"Content-Type": "application/json", "Host": TELEGRAM_HOST},
+            )
+            resp = conn.getresponse()
+            body = resp.read().decode("utf-8", "ignore")
+            conn.close()
+            if resp.status == 200:
+                print(f"[TBANK] telegram notify sent via {host}: {body[:150]}")
                 return
-            last_err = f"HTTP {e.code}"
+            print(f"[TBANK] telegram notify HTTP {resp.status} via {host}: {body[:150]}")
+            if resp.status < 500:
+                return
+            last_err = f"HTTP {resp.status}"
         except Exception as e:
-            last_err = str(e)
-            print(f"[TBANK] telegram notify failed (attempt {attempt}): {e}")
-        time.sleep(1)
-    print(f"[TBANK] telegram notify GAVE UP after 3 attempts: {last_err}")
+            last_err = f"{host}: {e}"
+            print(f"[TBANK] telegram notify failed via {host}: {e}")
+    print(f"[TBANK] telegram notify GAVE UP: {last_err}")
 
 
 def _journal_payment(order_id: str, login: str, amount: float, status: str,
