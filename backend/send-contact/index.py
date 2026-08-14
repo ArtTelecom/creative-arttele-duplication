@@ -267,6 +267,20 @@ def call_vsegpt(messages: list, max_tokens: int = 500) -> str:
 TELEGRAM_HOST = "api.telegram.org"
 TELEGRAM_HOSTS = ["149.154.167.220", "149.154.167.197", "149.154.175.50", TELEGRAM_HOST]
 
+DEFAULT_EMAIL_TO = "art888019@mail.ru, art888018@mail.ru"
+
+
+def _smtp_host_for(email: str) -> str:
+    """Подбирает SMTP-сервер по домену почты отправителя."""
+    domain = email.split("@")[-1].lower() if "@" in email else ""
+    if domain in ("mail.ru", "bk.ru", "inbox.ru", "list.ru", "internet.ru"):
+        return "smtp.mail.ru"
+    if domain in ("yandex.ru", "ya.ru", "yandex.com"):
+        return "smtp.yandex.ru"
+    if domain in ("gmail.com", "googlemail.com"):
+        return "smtp.gmail.com"
+    return "smtp.mail.ru"
+
 
 def send_telegram(text: str) -> None:
     """Отправляет заявку в Telegram. Перебирает адреса Telegram,
@@ -460,12 +474,14 @@ def handle_ticket(body: dict) -> dict:
 
     smtp_user = os.environ.get("SMTP_USER")
     smtp_pass = os.environ.get("SMTP_PASS")
-    email_to = os.environ.get("EMAIL_TO") or os.environ.get("NOTIFICATION_EMAIL")
-    print(f"[EMAIL] smtp_user={bool(smtp_user)}, smtp_pass={bool(smtp_pass)}, email_to={email_to!r}")
+    email_to_raw = os.environ.get("EMAIL_TO") or os.environ.get("NOTIFICATION_EMAIL") or DEFAULT_EMAIL_TO
+    recipients = [a.strip() for a in re.split(r"[,;\s]+", email_to_raw) if a.strip()]
+    email_to = ", ".join(recipients)
+    print(f"[EMAIL] smtp_user={bool(smtp_user)}, smtp_pass={bool(smtp_pass)}, recipients={recipients}")
 
-    if smtp_user and smtp_pass and email_to:
-        smtp_host = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    if smtp_user and smtp_pass and recipients:
+        smtp_host = os.environ.get("SMTP_HOST") or _smtp_host_for(smtp_user)
+        smtp_port = int(os.environ.get("SMTP_PORT", "465"))
         subject = f"Новая заявка с сайта АртТелеком Юг: {topic or 'Без темы'}"
         html = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb; padding: 24px; border-radius: 12px;">
@@ -487,13 +503,18 @@ def handle_ticket(body: dict) -> dict:
         msg["To"] = email_to
         msg.attach(MIMEText(html, "html", "utf-8"))
         try:
-            with smtplib.SMTP(smtp_host, smtp_port) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(smtp_user, email_to, msg.as_string())
-            print("[EMAIL] Письмо отправлено")
+            if smtp_port == 465:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                    server.login(smtp_user, smtp_pass)
+                    server.sendmail(smtp_user, recipients, msg.as_string())
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                    server.starttls()
+                    server.login(smtp_user, smtp_pass)
+                    server.sendmail(smtp_user, recipients, msg.as_string())
+            print(f"[EMAIL] Письмо отправлено на {email_to} через {smtp_host}:{smtp_port}")
         except Exception as e:
-            print(f"[EMAIL] Ошибка: {type(e).__name__}: {str(e)[:300]}")
+            print(f"[EMAIL] Ошибка ({smtp_host}:{smtp_port}): {type(e).__name__}: {str(e)[:300]}")
 
     return {
         "statusCode": 200,
