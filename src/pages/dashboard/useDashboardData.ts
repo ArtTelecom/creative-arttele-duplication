@@ -113,15 +113,16 @@ export function useDashboardData() {
     fetchUserData(true);
 
     let lastFetch = Date.now();
-    const MIN_GAP_MS = 30_000;
+    const MIN_GAP_MS = 60_000;
     const safeFetch = () => {
+      if (document.hidden) return;
       const now = Date.now();
       if (now - lastFetch < MIN_GAP_MS) return;
       lastFetch = now;
       fetchUserData(false);
     };
 
-    const intervalId = window.setInterval(safeFetch, 60_000);
+    const intervalId = window.setInterval(safeFetch, 5 * 60_000);
     const onFocus = () => safeFetch();
     const onVisibility = () => {
       if (document.visibilityState === "visible") safeFetch();

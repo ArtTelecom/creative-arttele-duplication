@@ -14,18 +14,28 @@ const PINNED_NEWS: NewsItem[] = [
   },
 ];
 
+let newsCache: { items: NewsItem[]; ts: number } | null = null;
+const NEWS_TTL_MS = 30 * 60 * 1000;
+
 export default function NewsBlock() {
-  const [news, setNews] = useState<NewsItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [news, setNews] = useState<NewsItem[]>(() =>
+    newsCache && Date.now() - newsCache.ts < NEWS_TTL_MS ? newsCache.items : []
+  );
+  const [loading, setLoading] = useState(
+    !(newsCache && Date.now() - newsCache.ts < NEWS_TTL_MS)
+  );
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
+    if (newsCache && Date.now() - newsCache.ts < NEWS_TTL_MS) return;
     let cancelled = false;
     fetch(`${API_URL}?action=news`)
       .then((r) => r.json())
       .then((data) => {
         const remote = Array.isArray(data.news) ? data.news : [];
-        if (!cancelled) setNews([...PINNED_NEWS, ...remote]);
+        const items = [...PINNED_NEWS, ...remote];
+        newsCache = { items, ts: Date.now() };
+        if (!cancelled) setNews(items);
       })
       .catch(() => {
         if (!cancelled) setNews([...PINNED_NEWS]);

@@ -15,6 +15,8 @@ type ApiLocation = {
 };
 
 let cache: Location[] | null = null;
+let cacheTs = 0;
+const TTL_MS = 30 * 60 * 1000;
 
 // Всё берём из базы: название, описание, доступность, акции и тарифы района.
 function merge(api: ApiLocation[]): Location[] {
@@ -37,6 +39,7 @@ export function useLocations() {
   const [loading, setLoading] = useState(!cache);
 
   useEffect(() => {
+    if (cache && Date.now() - cacheTs < TTL_MS) return;
     let alive = true;
     fetch(LOCATIONS_URL, {
       method: "POST",
@@ -48,6 +51,7 @@ export function useLocations() {
         if (!alive || !json || !Array.isArray(json.locations) || !json.locations.length) return;
         const merged = merge(json.locations);
         cache = merged;
+        cacheTs = Date.now();
         setLocations(merged);
       })
       .catch(() => {})

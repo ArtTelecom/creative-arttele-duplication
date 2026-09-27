@@ -12,6 +12,8 @@ export interface TariffsData {
 }
 
 let cache: TariffsData | null = null;
+let cacheTs = 0;
+const TTL_MS = 30 * 60 * 1000;
 
 export function useTariffs() {
   const [data, setData] = useState<TariffsData>(
@@ -20,6 +22,7 @@ export function useTariffs() {
   const [loading, setLoading] = useState(!cache);
 
   useEffect(() => {
+    if (cache && Date.now() - cacheTs < TTL_MS) return;
     let alive = true;
     fetch(TARIFFS_URL, {
       method: "POST",
@@ -37,6 +40,7 @@ export function useTariffs() {
               : localBusinessTariffs,
         };
         cache = next;
+        cacheTs = Date.now();
         setData(next);
       })
       .catch(() => {})
