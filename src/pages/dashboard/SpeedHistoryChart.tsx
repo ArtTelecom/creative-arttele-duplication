@@ -41,6 +41,7 @@ export default function SpeedHistoryChart({ login }: { login: string }) {
     setLoading(true);
 
     const fetchHistory = () => {
+      if (document.hidden) return;
       fetch(`${url}?action=speed_history&login=${encodeURIComponent(login)}&hours=${hours}&_=${Date.now()}`, { cache: "no-store" })
         .then((r) => r.json())
         .then((data: { points?: Point[] }) => {
@@ -59,10 +60,15 @@ export default function SpeedHistoryChart({ login }: { login: string }) {
     };
 
     fetchHistory();
-    const id = window.setInterval(fetchHistory, 60_000);
+    const id = window.setInterval(fetchHistory, 5 * 60_000);
+    const onVisible = () => {
+      if (!document.hidden) fetchHistory();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [login, hours]);
 
@@ -79,7 +85,7 @@ export default function SpeedHistoryChart({ login }: { login: string }) {
           График скорости
         </h3>
         <div className="flex gap-2">
-          {[6, 24, 72].map((h) => (
+          {[6, 24, 48].map((h) => (
             <button
               key={h}
               onClick={() => setHours(h)}
@@ -90,7 +96,7 @@ export default function SpeedHistoryChart({ login }: { login: string }) {
                 color: hours === h ? "#c084fc" : "rgba(255,255,255,0.55)",
               }}
             >
-              {h === 6 ? "6 ч" : h === 24 ? "24 ч" : "3 дня"}
+              {h === 6 ? "6 ч" : h === 24 ? "24 ч" : "2 дня"}
             </button>
           ))}
         </div>

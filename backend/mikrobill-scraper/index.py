@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import random
 import requests
 from bs4 import BeautifulSoup
 from urllib3.util import connection as urllib3_connection
@@ -2091,6 +2092,13 @@ def save_speed_point(login, raw_speed):
             f"INSERT INTO speed_history (login, in_kbps, out_kbps) "
             f"VALUES ('{safe_login}', {in_kbps}, {out_kbps})"
         )
+        # Раз в ~20 записей подчищаем историю старше 2 суток,
+        # чтобы таблица не росла бесконечно
+        if random.randint(1, 20) == 1:
+            cur.execute(
+                "DELETE FROM speed_history WHERE ts < NOW() - INTERVAL '2 days'"
+            )
+            print(f"[SPEED] очистка истории: удалено {cur.rowcount} старых записей")
         conn.commit()
         cur.close()
     finally:
@@ -2104,7 +2112,7 @@ def handle_speed_history(event, cors):
     login = (params.get('login', '') or '').strip()
     hours = params.get('hours', '24')
     try:
-        hours_int = max(1, min(168, int(hours)))
+        hours_int = max(1, min(48, int(hours)))
     except Exception:
         hours_int = 24
     if not login:
