@@ -460,6 +460,147 @@ def _notify_email(login: str, amount: float, order_id: str, credit_result: dict)
         print(f"[TBANK] email notify failed ({smtp_host}:{smtp_port}): {type(e).__name__}: {str(e)[:200]}")
 
 
+def _db():
+    """Подключение к журналу. None — если база не настроена."""
+    dsn = os.environ.get("DATABASE_URL", "")
+    if not dsn:
+        return None
+    try:
+        import psycopg2
+        return psycopg2.connect(dsn)
+    except Exception as e:
+        print(f"[TBANK] db connect failed: {e}")
+        return None
+
+
+def _sq(v) -> str:
+    return "'" + str(v).replace("'", "''") + "'"
+
+
+def _already_credited(order_id: str) -> bool:
+    """Защита от двойного зачисления: заказ уже успешно проведён в кассу?"""
+    if not order_id:
+        return False
+    conn = _db()
+    if conn is None:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT 1 FROM {JOURNAL_SCHEMA}.payments "
+                f"WHERE order_id = {_sq(order_id)} AND credited LIMIT 1"
+            )
+            return cur.fetchone() is not None
+    except Exception as e:
+        print(f"[TBANK] credited-check failed order={order_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+RETRY_DELAYS_MIN = [1, 5, 15, 60, 180, 360]
+MAX_RETRY_ATTEMPTS = len(RETRY_DELAYS_MIN)
+
+
+def _queue_retry(order_id: str, login: str, amount: float, payment_id: str, error: str) -> None:
+    """Ставит платёж в очередь повторного зачисления (касса была недоступна)."""
+    conn = _db()
+    if conn is None:
+        print(f"[TBANK] retry not queued (no db) order={order_id}")
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {JOURNAL_SCHEMA}.credit_retries "
+                "(order_id, login, amount, payment_id, last_error, next_try_at) VALUES ("
+                f"{_sq(order_id)}, {_sq(login)}, {amount or 0}, {_sq(payment_id)}, "
+                f"{_sq(error[:300])}, now() + interval '{RETRY_DELAYS_MIN[0]} minutes') "
+                "ON CONFLICT (order_id) DO UPDATE SET "
+                "status = 'pending', last_error = EXCLUDED.last_error, updated_at = now()"
+            )
+        conn.commit()
+        print(f"[TBANK] retry queued order={order_id} amount={amount}")
+    except Exception as e:
+        print(f"[TBANK] retry queue failed order={order_id}: {e}")
+    finally:
+        conn.close()
+
+
+def _mark_retry_done(order_id: str, ok: bool, attempts: int, error: str) -> None:
+    conn = _db()
+    if conn is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            if ok:
+                cur.execute(
+                    f"UPDATE {JOURNAL_SCHEMA}.credit_retries SET status = 'done', "
+                    f"attempts = {attempts}, last_error = '', updated_at = now() "
+                    f"WHERE order_id = {_sq(order_id)}"
+                )
+            elif attempts >= MAX_RETRY_ATTEMPTS:
+                cur.execute(
+                    f"UPDATE {JOURNAL_SCHEMA}.credit_retries SET status = 'failed', "
+                    f"attempts = {attempts}, last_error = {_sq(error[:300])}, updated_at = now() "
+                    f"WHERE order_id = {_sq(order_id)}"
+                )
+            else:
+                delay = RETRY_DELAYS_MIN[min(attempts, MAX_RETRY_ATTEMPTS - 1)]
+                cur.execute(
+                    f"UPDATE {JOURNAL_SCHEMA}.credit_retries SET attempts = {attempts}, "
+                    f"last_error = {_sq(error[:300])}, updated_at = now(), "
+                    f"next_try_at = now() + interval '{delay} minutes' "
+                    f"WHERE order_id = {_sq(order_id)}"
+                )
+        conn.commit()
+    except Exception as e:
+        print(f"[TBANK] retry update failed order={order_id}: {e}")
+    finally:
+        conn.close()
+
+
+def _process_retries() -> dict:
+    """Добивает платежи, которые не удалось зачислить: берёт созревшие из очереди."""
+    conn = _db()
+    if conn is None:
+        return {"ok": False, "error": "no db"}
+    rows = []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT order_id, login, amount, payment_id, attempts "
+                f"FROM {JOURNAL_SCHEMA}.credit_retries "
+                "WHERE status = 'pending' AND next_try_at <= now() "
+                "ORDER BY next_try_at LIMIT 10"
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        conn.close()
+        return {"ok": False, "error": str(e)}
+    conn.close()
+
+    done, failed, skipped = 0, 0, 0
+    for order_id, login, amount, payment_id, attempts in rows:
+        amount = float(amount or 0)
+        attempts = int(attempts or 0) + 1
+        if _already_credited(order_id):
+            _mark_retry_done(order_id, True, attempts, "")
+            skipped += 1
+            continue
+        result = _credit_via_kassa(login, amount, order_id)
+        ok = bool(result.get("ok"))
+        print(f"[TBANK] retry #{attempts} order={order_id} -> ok={ok}")
+        _journal_payment(order_id, login, amount, "RETRY", str(payment_id or ""), result, "")
+        _mark_retry_done(order_id, ok, attempts, str(result.get("error", "")))
+        if ok:
+            _notify_telegram(login, amount, order_id, result)
+            done += 1
+        elif attempts >= MAX_RETRY_ATTEMPTS:
+            failed += 1
+    return {"ok": True, "processed": len(rows), "credited": done,
+            "failed": failed, "skipped": skipped}
+
+
 def _journal_payment(order_id: str, login: str, amount: float, status: str,
                      payment_id: str, credit_result: dict, raw_body: str) -> None:
     """Пишет запись о каждом уведомлении банка в журнал платежей (PostgreSQL).
@@ -562,6 +703,13 @@ def handler(event, context):
         if not terminal_key or not password:
             return {"statusCode": 500, "headers": cors, "body": json.dumps({"error": "Эквайринг не настроен"})}
 
+        # Страховка без планировщика: любая новая оплата попутно добивает
+        # зависшие платежи из очереди.
+        try:
+            _process_retries()
+        except Exception as e:
+            print(f"[TBANK] piggyback retry failed: {e}")
+
         body = json.loads(event.get("body") or "{}")
         login = str(body.get("login", "")).strip()
         try:
@@ -626,6 +774,28 @@ def handler(event, context):
             "details": resp.get("Details", ""),
         })}
 
+    if action == "retry":
+        return {"statusCode": 200, "headers": cors,
+                "body": json.dumps(_process_retries(), ensure_ascii=False)}
+
+    if action == "retry_status":
+        conn = _db()
+        if conn is None:
+            return {"statusCode": 200, "headers": cors,
+                    "body": json.dumps({"ok": False, "error": "no db"})}
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT status, count(*), coalesce(sum(amount), 0) "
+                    f"FROM {JOURNAL_SCHEMA}.credit_retries GROUP BY status"
+                )
+                stats = {r[0]: {"count": int(r[1]), "amount": float(r[2])}
+                         for r in cur.fetchall()}
+        finally:
+            conn.close()
+        return {"statusCode": 200, "headers": cors,
+                "body": json.dumps({"ok": True, "queue": stats}, ensure_ascii=False)}
+
     if action == "notify":
         raw = event.get("body") or "{}"
         try:
@@ -653,8 +823,17 @@ def handler(event, context):
         amount = float(data.get("Amount", 0)) / 100.0
 
         if status in ("CONFIRMED", "AUTHORIZED") and order_id:
+            # Защита от повторного зачисления: банк шлёт уведомление дважды
+            # (AUTHORIZED и CONFIRMED), плюс возможны ретраи на стороне банка.
+            if _already_credited(order_id):
+                print(f"[TBANK] duplicate skipped order={order_id} status={status}")
+                return {"statusCode": 200, "headers": cors, "body": "OK"}
+
             result = _credit_via_kassa(login, amount, order_id)
             print(f"[TBANK] credit login={login} amount={amount} order={order_id} -> {result}")
+            # Касса не ответила — ставим в очередь, деньги не теряются
+            if not result.get("ok"):
+                _queue_retry(order_id, login, amount, payment_id, str(result.get("error", "")))
             # Уведомление в Telegram — только на финальном статусе CONFIRMED,
             # чтобы не приходило два сообщения (на AUTHORIZED и на CONFIRMED)
             if status == "CONFIRMED":
