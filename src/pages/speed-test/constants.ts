@@ -8,7 +8,7 @@ export const SPEED_TEST_ORIGIN =
 export const SPEED_TEST_API = "https://functions.poehali.dev/d0fffefe-ed43-400a-a5b8-d5b58e48fc2d";
 // Статичный файл в сборке, раздаётся локальным сервером провайдера — по нему меряем download.
 export const SPEED_TEST_FILE = "/speedtest.bin";
-export const SPEED_TEST_FILE_BYTES = 25 * 1024 * 1024;
+export const SPEED_TEST_FILE_BYTES = 8 * 1024 * 1024;
 // PHP-приёмник отдачи на том же локальном сервере — по нему меряем upload.
 export const SPEED_TEST_UPLOAD = "/upload.php";
 
