@@ -309,8 +309,10 @@ def _telegram_hosts() -> list:
     return hosts
 
 
-def _notify_telegram(login: str, amount: float, order_id: str, credit_result: dict) -> None:
-    """Отправляет уведомление об успешной оплате в Telegram-канал.
+def _notify_telegram(login: str, amount: float, order_id: str, credit_result: dict,
+                     kind: str = "") -> None:
+    """Отправляет уведомление об оплате в Telegram-канал.
+    kind: "queued" — платёж встал в очередь повторов, "retry_ok" — добит автоповтором.
     Не влияет на приём платежа: любые ошибки только логируются."""
     token = os.environ.get("TELEGRAM_PAY_BOT_TOKEN", "") or os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_PAY_CHAT_ID", "") or "-1003901236056"
@@ -322,7 +324,17 @@ def _notify_telegram(login: str, amount: float, order_id: str, credit_result: di
     balance_after = credit_result.get("balance_after", "")
     account = str(credit_result.get("account", "") or "").strip()
     fio = str(credit_result.get("fio", "") or "").strip()
-    if ok:
+    attempt = credit_result.get("attempt", "")
+    if kind == "retry_ok":
+        text = "✅ Платёж добит автоповтором\n"
+        text += f"Касса ответила с попытки №{attempt}. Ручное зачисление НЕ требуется.\n\n"
+    elif kind == "queued":
+        text = (
+            "🟡 Касса недоступна — платёж в очереди\n"
+            "Деньги приняты банком. Система сама повторит зачисление\n"
+            "(до 6 попыток в течение ~10 часов). Вмешательство пока НЕ требуется.\n\n"
+        )
+    elif ok:
         text = "✅ Оплата зачислена\n\n"
     else:
         text = (
@@ -559,20 +571,28 @@ def _mark_retry_done(order_id: str, ok: bool, attempts: int, error: str) -> None
         conn.close()
 
 
-def _process_retries() -> dict:
-    """Добивает платежи, которые не удалось зачислить: берёт созревшие из очереди."""
+def _process_retries(only_order: str = "") -> dict:
+    """Добивает платежи, которые не удалось зачислить: берёт созревшие из очереди.
+    only_order — добить конкретный заказ сразу, не дожидаясь срока (кнопка в админке)."""
     conn = _db()
     if conn is None:
         return {"ok": False, "error": "no db"}
     rows = []
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                f"SELECT order_id, login, amount, payment_id, attempts "
-                f"FROM {JOURNAL_SCHEMA}.credit_retries "
-                "WHERE status = 'pending' AND next_try_at <= now() "
-                "ORDER BY next_try_at LIMIT 10"
-            )
+            if only_order:
+                cur.execute(
+                    f"SELECT order_id, login, amount, payment_id, attempts "
+                    f"FROM {JOURNAL_SCHEMA}.credit_retries "
+                    f"WHERE order_id = {_sq(only_order)} AND status <> 'done'"
+                )
+            else:
+                cur.execute(
+                    f"SELECT order_id, login, amount, payment_id, attempts "
+                    f"FROM {JOURNAL_SCHEMA}.credit_retries "
+                    "WHERE status = 'pending' AND next_try_at <= now() "
+                    "ORDER BY next_try_at LIMIT 10"
+                )
             rows = cur.fetchall()
     except Exception as e:
         conn.close()
@@ -593,9 +613,12 @@ def _process_retries() -> dict:
         _journal_payment(order_id, login, amount, "RETRY", str(payment_id or ""), result, "")
         _mark_retry_done(order_id, ok, attempts, str(result.get("error", "")))
         if ok:
-            _notify_telegram(login, amount, order_id, result)
+            result["attempt"] = attempts
+            _notify_telegram(login, amount, order_id, result, kind="retry_ok")
             done += 1
         elif attempts >= MAX_RETRY_ATTEMPTS:
+            # Попытки исчерпаны — теперь действительно нужны руки
+            _notify_telegram(login, amount, order_id, result)
             failed += 1
     return {"ok": True, "processed": len(rows), "credited": done,
             "failed": failed, "skipped": skipped}
@@ -775,8 +798,13 @@ def handler(event, context):
         })}
 
     if action == "retry":
+        try:
+            _rb = json.loads(event.get("body") or "{}") or {}
+        except Exception:
+            _rb = {}
+        _only = str(_rb.get("order_id", "") or "").strip()
         return {"statusCode": 200, "headers": cors,
-                "body": json.dumps(_process_retries(), ensure_ascii=False)}
+                "body": json.dumps(_process_retries(_only), ensure_ascii=False)}
 
     if action == "retry_status":
         conn = _db()
@@ -834,6 +862,10 @@ def handler(event, context):
             # Касса не ответила — ставим в очередь, деньги не теряются
             if not result.get("ok"):
                 _queue_retry(order_id, login, amount, payment_id, str(result.get("error", "")))
+                if status == "CONFIRMED":
+                    _notify_telegram(login, amount, order_id, result, kind="queued")
+                    _journal_payment(order_id, login, amount, status, payment_id, result, raw)
+                return {"statusCode": 200, "headers": cors, "body": "OK"}
             # Уведомление в Telegram — только на финальном статусе CONFIRMED,
             # чтобы не приходило два сообщения (на AUTHORIZED и на CONFIRMED)
             if status == "CONFIRMED":

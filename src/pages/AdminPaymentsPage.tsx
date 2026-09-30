@@ -10,6 +10,7 @@ import TvTariffsEditor from "@/components/admin/TvTariffsEditor";
 import ServicesEditor from "@/components/admin/ServicesEditor";
 import ContactsEditor from "@/components/admin/ContactsEditor";
 import SocialsEditor from "@/components/admin/SocialsEditor";
+import RetryQueue, { RetryItem } from "@/components/admin/RetryQueue";
 
 const API_URL = "https://functions.poehali.dev/8df3bbb2-ef10-420a-95ca-13829e20eae1";
 const CREDS_KEY = "art_pay_admin";
@@ -44,13 +45,14 @@ const AdminPaymentsPage = () => {
   const [password, setPassword] = useState(saved?.password || "");
   const [authed, setAuthed] = useState(!!saved);
   const [items, setItems] = useState<Payment[]>([]);
+  const [retries, setRetries] = useState<RetryItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [creditingId, setCreditingId] = useState<number | null>(null);
   const [section, setSection] = useState<
-    "payments" | "tariffs" | "locations" | "tv" | "services" | "contacts" | "socials"
+    "payments" | "retries" | "tariffs" | "locations" | "tv" | "services" | "contacts" | "socials"
   >("payments");
 
   const manualCredit = async (p: Payment) => {
@@ -80,6 +82,26 @@ const AdminPaymentsPage = () => {
     }
   };
 
+  const runRetry = async (orderId?: string) => {
+    setError("");
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Admin-Login": login,
+          "X-Admin-Password": password,
+        },
+        body: JSON.stringify({ action: "retry_run", order_id: orderId || "" }),
+      });
+      const data = await res.json();
+      if (!data.ok) setError(data.error || "Не удалось запустить зачисление");
+      await load(login, password);
+    } catch {
+      setError("Не удалось подключиться");
+    }
+  };
+
   const load = async (l: string, p: string) => {
     setLoading(true);
     setError("");
@@ -99,6 +121,7 @@ const AdminPaymentsPage = () => {
       }
       const data = await res.json();
       setItems(data.items || []);
+      setRetries(data.retries || []);
       setSummary(data.summary || null);
       setAuthed(true);
       localStorage.setItem(CREDS_KEY, JSON.stringify({ login: l, password: p }));
@@ -208,6 +231,7 @@ const AdminPaymentsPage = () => {
         <div className="flex gap-1 rounded-lg bg-slate-800 p-1 w-fit flex-wrap">
           {([
             ["payments", "Платежи"],
+            ["retries", retries.length ? `Зависшие (${retries.length})` : "Зависшие"],
             ["tariffs", "Тарифы"],
             ["locations", "Районы и акции"],
             ["tv", "ТВ-тарифы"],
@@ -219,7 +243,11 @@ const AdminPaymentsPage = () => {
               key={key}
               onClick={() => setSection(key)}
               className={`px-4 py-2 rounded-md text-sm font-medium ${
-                section === key ? "bg-slate-600 text-white" : "text-slate-400"
+                section === key
+                  ? "bg-slate-600 text-white"
+                  : key === "retries" && retries.length
+                    ? "text-amber-400"
+                    : "text-slate-400"
               }`}
             >
               {label}
@@ -227,6 +255,7 @@ const AdminPaymentsPage = () => {
           ))}
         </div>
 
+        {section === "retries" && <RetryQueue items={retries} onRun={runRetry} />}
         {section === "tariffs" && <TariffsEditor login={login} password={password} />}
         {section === "locations" && <LocationsEditor login={login} password={password} />}
         {section === "tv" && <TvTariffsEditor login={login} password={password} />}

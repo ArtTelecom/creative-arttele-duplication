@@ -5,6 +5,7 @@ import urllib.error
 
 JOURNAL_SCHEMA = "t_p33656588_creative_arttele_dup"
 MIKROBILL_CREDIT_URL = "https://functions.poehali.dev/f2c8bb7d-33bd-4950-bcd7-7f4c5f5fbfdd?action=credit"
+TBANK_URL = "https://functions.poehali.dev/740464df-96c9-4053-b7ad-d737892f97ca"
 
 
 def _cors():
@@ -122,6 +123,24 @@ def handler(event, context):
         finally:
             conn.close()
 
+    if action == "retry_run":
+        """Запускает добивание зависших платежей из очереди повторов."""
+        order_id = str(body.get("order_id", "") or "").strip()
+        payload = json.dumps({"order_id": order_id} if order_id else {}).encode("utf-8")
+        url = TBANK_URL + "?action=retry"
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                out = json.loads(resp.read().decode("utf-8"))
+            return {"statusCode": 200, "headers": cors,
+                    "body": json.dumps(out, ensure_ascii=False)}
+        except Exception as e:
+            return {"statusCode": 200, "headers": cors,
+                    "body": json.dumps({"ok": False, "error": str(e)[:200]}, ensure_ascii=False)}
+
     params = event.get("queryStringParameters") or {}
     try:
         limit = min(int(params.get("limit", 200)), 1000)
@@ -144,8 +163,27 @@ def handler(event, context):
                 f"FROM {JOURNAL_SCHEMA}.payments"
             )
             total_cnt, total_sum, failed_cnt = cur.fetchone()
+            cur.execute(
+                "SELECT order_id, login, amount, attempts, status, last_error, "
+                "to_char(next_try_at + interval '3 hours', 'DD.MM HH24:MI'), "
+                "to_char(created_at + interval '3 hours', 'DD.MM.YYYY HH24:MI') "
+                f"FROM {JOURNAL_SCHEMA}.credit_retries "
+                "WHERE status <> 'done' ORDER BY created_at DESC LIMIT 100"
+            )
+            retry_rows = cur.fetchall()
     finally:
         conn.close()
+
+    retries = [{
+        "order_id": r[0],
+        "login": r[1],
+        "amount": float(r[2] or 0),
+        "attempts": int(r[3] or 0),
+        "status": r[4],
+        "last_error": r[5],
+        "next_try_at": r[6],
+        "created_at": r[7],
+    } for r in retry_rows]
 
     items = [{
         "id": r[0],
@@ -164,6 +202,7 @@ def handler(event, context):
 
     return {"statusCode": 200, "headers": cors, "body": json.dumps({
         "items": items,
+        "retries": retries,
         "summary": {
             "total": int(total_cnt or 0),
             "total_sum": float(total_sum or 0),
