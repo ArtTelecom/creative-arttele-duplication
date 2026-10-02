@@ -49,9 +49,14 @@ export function useDashboardData() {
 
       // 1) Базовая инфа (быстро) — показываем сразу
       fetch(`${url}?action=user_info&${auth}&_=${ts}`, { cache: "no-store" })
-        .then((r) => r.json())
+        .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (cancelled) return;
+          if (!data || data.error || data.balance === undefined || data.balance === "") {
+            if (initial) setLoading(false);
+            setRefreshing(false);
+            return;
+          }
           setUserData((prev) => {
             // Сохраняем уже подгруженные платежи/трафик при обновлении базы
             const merged = {
